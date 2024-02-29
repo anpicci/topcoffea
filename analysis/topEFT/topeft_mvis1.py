@@ -377,47 +377,9 @@ def calculate_M1T(reco_obj0, reco_obj1, met):
     met_px = met.pt*np.cos(met.phi)
     met_py = met.pt*np.sin(met.phi)
 
-    #ET_tot = (ET_visible_system + met.pt)**2
-    #pT_tot = (px_visible_system + met.pt*np.cos(met.phi))**2 + (py_visible_system + met.pt*np.sin(met.phi))**2
-    #px_tot = (px_visible_system + met.pt*np.cos(met.phi))
-    #py_tot = (py_visible_system + met.pt*np.sin(met.phi))
-    
     # Compute the M1T using the combined visible system and MET
     M1T_squared = (ET_visible_system + met.pt)**2 - (px_visible_system + met_px)**2 - (py_visible_system + met_py)**2
     M1T = np.sqrt(M1T_squared)
-
-    '''
-    with open("object_attributes.txt", "w") as file:
-        for idx in range(len(reco_obj0_vector.pt)):
-            file.write(f"Event Index: {idx}\n")
-            file.write(f"reco_obj0_vector px: {reco_obj0_vector.px[idx]}\n")
-            file.write(f"reco_obj0_vector py: {reco_obj0_vector.py[idx]}\n")
-            file.write(f"reco_obj0_vector pz: {reco_obj0_vector.pz[idx]}\n")
-            file.write(f"reco_obj0_vector Energy: {reco_obj0_vector.energy[idx]}\n")
-            file.write(f"reco_obj0_vector Mass: {reco_obj0_vector.mass[idx]}\n")
-            file.write(f"reco_obj1_vector px: {reco_obj1_vector.px[idx]}\n")
-            file.write(f"reco_obj1_vector py: {reco_obj1_vector.py[idx]}\n")
-            file.write(f"reco_obj1_vector pz: {reco_obj1_vector.pz[idx]}\n")
-            file.write(f"reco_obj1_vector Energy: {reco_obj1_vector.energy[idx]}\n")
-            file.write(f"reco_obj1_vector Mass: {reco_obj1_vector.mass[idx]}\n")
-            file.write(f"visible_system pt: {visible_system.pt[idx]}\n")
-            file.write(f"visible_system px: {visible_system.px[idx]}\n")
-            file.write(f"visible_system py: {visible_system.py[idx]}\n")
-            file.write(f"visible_system pz: {visible_system.pz[idx]}\n")
-            file.write(f"visible_system Energy: {visible_system.energy[idx]}\n")
-            file.write(f"visible_system Mass: {visible_system.mass[idx]}\n")
-            file.write(f"MET px: {met.pt[idx] * np.cos(met.phi[idx])}\n")
-            file.write(f"MET py: {met.pt[idx] * np.sin(met.phi[idx])}\n")
-            file.write(f"MET pt: {met.pt[idx]}\n")
-            file.write(f"MET phi: {met.phi[idx]}\n")
-            file.write(f"ET tot: {ET_tot[idx]}\n")
-            file.write(f"pT tot: {pT_tot[idx]}\n")
-            file.write(f"px tot: {px_tot[idx]}\n")
-            file.write(f"py tot: {py_tot[idx]}\n")
-            file.write("-----\n")
-            if idx > 99:
-                break
-    '''
 
     return M1T
 
@@ -468,16 +430,16 @@ class AnalysisProcessor(processor.ProcessorABC):
         # Create the histograms
         self._accumulator = processor.dict_accumulator({
             ##"invmass" : HistEFT("Events", wc_names_lst, hist.Cat("sample", "sample"), hist.Cat("channel", "channel"), hist.Cat("systematic", "Systematic Uncertainty"),hist.Cat("appl", "AR/SR"), hist.Bin("invmass", "$m_{\ell\ell}$ (GeV) ", 100, 0, 200)),
-            "mvis_gentaulep": HistEFT("Events", wc_names_lst, hist.Cat("sample", "sample"), hist.Cat("channel", "channel"), hist.Cat("systematic", "Systematic Uncertainty"), hist.Cat("appl", "AR/SR"), hist.Bin("mvis_gentaulep", "Invariant Mass of gne tau-lepton pair (GeV)", 10, 0, 500)),
-            "mvis_gentaulep0": HistEFT("Events", wc_names_lst, hist.Cat("sample", "sample"), hist.Cat("channel", "channel"), hist.Cat("systematic", "Systematic Uncertainty"), hist.Cat("appl", "AR/SR"), hist.Bin("mvis_gentaulep0", "Invariant Mass of gne tau-lepton pair (GeV)", 10, 0, 500)),
-            "mvis_nogentaulep0": HistEFT("Events", wc_names_lst, hist.Cat("sample", "sample"), hist.Cat("channel", "channel"), hist.Cat("systematic", "Systematic Uncertainty"), hist.Cat("appl", "AR/SR"), hist.Bin("mvis_nogentaulep0", "Invariant Mass of gne tau-lepton pair (GeV)", 10, 0, 500)),
-            "mvis_gentaulep1": HistEFT("Events", wc_names_lst, hist.Cat("sample", "sample"), hist.Cat("channel", "channel"), hist.Cat("systematic", "Systematic Uncertainty"), hist.Cat("appl", "AR/SR"), hist.Bin("mvis_gentaulep1", "Invariant Mass of gne tau-lepton pair (GeV)", 10, 0, 500)),
-            "mvis_nogentaulep1": HistEFT("Events", wc_names_lst, hist.Cat("sample", "sample"), hist.Cat("channel", "channel"), hist.Cat("systematic", "Systematic Uncertainty"), hist.Cat("appl", "AR/SR"), hist.Bin("mvis_nogentaulep1", "Invariant Mass of gne tau-lepton pair (GeV)", 10, 0, 500)),
-            "mvis_gentaulepc": HistEFT("Events", wc_names_lst, hist.Cat("sample", "sample"), hist.Cat("channel", "channel"), hist.Cat("systematic", "Systematic Uncertainty"), hist.Cat("appl", "AR/SR"), hist.Bin("mvis_gentaulepc", "Invariant Mass of gne tau-lepton pair (GeV)", 10, 0, 500)),
-            "mvis_nogentaulepc": HistEFT("Events", wc_names_lst, hist.Cat("sample", "sample"), hist.Cat("channel", "channel"), hist.Cat("systematic", "Systematic Uncertainty"), hist.Cat("appl", "AR/SR"), hist.Bin("mvis_nogentaulepc", "Invariant Mass of gne tau-lepton pair (GeV)", 10, 0, 500)),
-            "mvis_taulep0": HistEFT("Events", wc_names_lst, hist.Cat("sample", "sample"), hist.Cat("channel", "channel"), hist.Cat("systematic", "Systematic Uncertainty"), hist.Cat("appl", "AR/SR"), hist.Bin("mvis_taulep0", "Invariant Mass of tau-lepton1 pair (GeV)", 10, 0, 500)),
-            "mvis_taulep1": HistEFT("Events", wc_names_lst, hist.Cat("sample", "sample"), hist.Cat("channel", "channel"), hist.Cat("systematic", "Systematic Uncertainty"), hist.Cat("appl", "AR/SR"), hist.Bin("mvis_taulep1", "Invariant Mass of closest tau-lepton pair (GeV)", 10, 0, 500)),
-            "mvis_taulep_dR0": HistEFT("Events", wc_names_lst, hist.Cat("sample", "sample"), hist.Cat("channel", "channel"), hist.Cat("systematic", "Systematic Uncertainty"), hist.Cat("appl", "AR/SR"), hist.Bin("mvis_taulep_dR0", "Invariant Mass of tau-lepton0 pair (GeV)", 10, 0, 500)),
+            "mvis_gentaulep": HistEFT("Events", wc_names_lst, hist.Cat("sample", "sample"), hist.Cat("channel", "channel"), hist.Cat("systematic", "Systematic Uncertainty"), hist.Cat("appl", "AR/SR"), hist.Bin("mvis_gentaulep", "Invariant Mass of gne tau-lepton pair (GeV)", 50, 0, 500)),
+            "mvis_gentaulep0": HistEFT("Events", wc_names_lst, hist.Cat("sample", "sample"), hist.Cat("channel", "channel"), hist.Cat("systematic", "Systematic Uncertainty"), hist.Cat("appl", "AR/SR"), hist.Bin("mvis_gentaulep0", "Invariant Mass of gne tau-lepton pair (GeV)", 50, 0, 500)),
+            "mvis_nogentaulep0": HistEFT("Events", wc_names_lst, hist.Cat("sample", "sample"), hist.Cat("channel", "channel"), hist.Cat("systematic", "Systematic Uncertainty"), hist.Cat("appl", "AR/SR"), hist.Bin("mvis_nogentaulep0", "Invariant Mass of gne tau-lepton pair (GeV)", 50, 0, 500)),
+            "mvis_gentaulep1": HistEFT("Events", wc_names_lst, hist.Cat("sample", "sample"), hist.Cat("channel", "channel"), hist.Cat("systematic", "Systematic Uncertainty"), hist.Cat("appl", "AR/SR"), hist.Bin("mvis_gentaulep1", "Invariant Mass of gne tau-lepton pair (GeV)", 50, 0, 500)),
+            "mvis_nogentaulep1": HistEFT("Events", wc_names_lst, hist.Cat("sample", "sample"), hist.Cat("channel", "channel"), hist.Cat("systematic", "Systematic Uncertainty"), hist.Cat("appl", "AR/SR"), hist.Bin("mvis_nogentaulep1", "Invariant Mass of gne tau-lepton pair (GeV)", 50, 0, 500)),
+            "mvis_gentaulepc": HistEFT("Events", wc_names_lst, hist.Cat("sample", "sample"), hist.Cat("channel", "channel"), hist.Cat("systematic", "Systematic Uncertainty"), hist.Cat("appl", "AR/SR"), hist.Bin("mvis_gentaulepc", "Invariant Mass of gne tau-lepton pair (GeV)", 50, 0, 500)),
+            "mvis_nogentaulepc": HistEFT("Events", wc_names_lst, hist.Cat("sample", "sample"), hist.Cat("channel", "channel"), hist.Cat("systematic", "Systematic Uncertainty"), hist.Cat("appl", "AR/SR"), hist.Bin("mvis_nogentaulepc", "Invariant Mass of gne tau-lepton pair (GeV)", 50, 0, 500)),
+            "mvis_taulep0": HistEFT("Events", wc_names_lst, hist.Cat("sample", "sample"), hist.Cat("channel", "channel"), hist.Cat("systematic", "Systematic Uncertainty"), hist.Cat("appl", "AR/SR"), hist.Bin("mvis_taulep0", "Invariant Mass of tau-lepton1 pair (GeV)", 50, 0, 500)),
+            "mvis_taulep1": HistEFT("Events", wc_names_lst, hist.Cat("sample", "sample"), hist.Cat("channel", "channel"), hist.Cat("systematic", "Systematic Uncertainty"), hist.Cat("appl", "AR/SR"), hist.Bin("mvis_taulep1", "Invariant Mass of closest tau-lepton pair (GeV)", 50, 0, 500)),
+            "mvis_taulep_dR0": HistEFT("Events", wc_names_lst, hist.Cat("sample", "sample"), hist.Cat("channel", "channel"), hist.Cat("systematic", "Systematic Uncertainty"), hist.Cat("appl", "AR/SR"), hist.Bin("mvis_taulep_dR0", "Invariant Mass of tau-lepton0 pair (GeV)", 50, 0, 500)),
 
             #"M1T_taulep0": HistEFT("Events", wc_names_lst, hist.Cat("sample", "sample"), hist.Cat("channel", "channel"), hist.Cat("systematic", "Systematic Uncertainty"), hist.Cat("appl", "AR/SR"), hist.Bin("M1T_taulep0", "Invariant Mass of tau-lepton0 pair (GeV)", 25, 0, 500)),
             #"M1T_taulep1": HistEFT("Events", wc_names_lst, hist.Cat("sample", "sample"), hist.Cat("channel", "channel"), hist.Cat("systematic", "Systematic Uncertainty"), hist.Cat("appl", "AR/SR"), hist.Bin("M1T_taulep1", "Invariant Mass of tau-lepton0 pair (GeV)", 25, 0, 500)),
@@ -654,7 +616,7 @@ class AnalysisProcessor(processor.ProcessorABC):
         
         genmatch_lep, genmatch_tau, mvis_gentaulep = get_closest_taus_for_all_events(genparticles, leptons, tau)
         
-        '''
+        
         # Open a file to write the information
         filename = f"particles_info.txt"
         with open(filename, "w") as file:
@@ -706,7 +668,7 @@ class AnalysisProcessor(processor.ProcessorABC):
                     file.write("-" * 40 + "\n")
 
                 file.write("=" * 80 + "\n")
-        '''
+        
         # An array of lenght events that is just 1 for each event
         # Probably there's a better way to do this, but we use this method elsewhere so I guess why not..
         events.nom = ak.ones_like(events.MET.pt)
@@ -817,21 +779,31 @@ class AnalysisProcessor(processor.ProcessorABC):
         leading_lepton = l_fo_conept_sorted[:, 0]
         subleading_lepton = l_fo_conept_sorted[:, 1]
 
+        #print("l_fo_conept_sorted.pt", ak.to_list(l_fo_conept_sorted["pt"]), ak.type(l_fo_conept_sorted["pt"]))
         # Visible mass for any lepton-tau pair
         leading_tau = tau_padded[:, 0]
 
-        
-        gen_leadtau_mask = leading_tau["pt"] == genmatch_tau["pt"]
-        gen_leadlep_mask = leading_lepton["pt"] == genmatch_lep["pt"]
-        gen_subleadlep_mask = subleading_lepton["pt"] == genmatch_lep["pt"]
+        #print("leading_tau.pt", ak.to_list(leading_tau["pt"]), ak.type(leading_tau["pt"]))
+        #print("genmatch_tau.pt", ak.to_list(genmatch_tau["pt"]), ak.type(genmatch_tau["pt"]))
+        #print("leading_lepton.pt", ak.to_list(leading_lepton["pt"]), ak.type(leading_lepton["pt"]))
+        #print("subleading_lepton.pt", ak.to_list(subleading_lepton["pt"]), ak.type(subleading_lepton["pt"]))
+        #print("genmatch_lep.pt", ak.to_list(genmatch_lep["pt"]), ak.type(genmatch_lep["pt"]))
+
+
+        gen_leadtau_mask = abs(leading_tau["pt"] - genmatch_tau["pt"]) < 1
+        gen_leadlep_mask = abs(leading_lepton["pt"] - genmatch_lep["pt"]) < 1
+        gen_subleadlep_mask = abs(subleading_lepton["pt"] - genmatch_lep["pt"]) < 1
+        #print("before gen_subleadlep_mask", ak.to_list(gen_subleadlep_mask), ak.type(gen_subleadlep_mask))
         gen_leadtau_mask = ak.pad_none(gen_leadtau_mask, 1)
         gen_leadlep_mask = ak.pad_none(gen_leadlep_mask, 1)
         gen_subleadlep_mask = ak.pad_none(gen_subleadlep_mask, 1)
+        #print("after gen_leadlep_mask", ak.to_list(gen_leadlep_mask), ak.type(gen_leadlep_mask))
+        #print("after gen_subleadlep_mask", ak.to_list(gen_subleadlep_mask), ak.type(gen_subleadlep_mask))
+
 
         gen_lep0tau_mask = gen_leadtau_mask & gen_leadlep_mask
         gen_lep1tau_mask = gen_leadtau_mask & gen_subleadlep_mask
         
-
         conv_mask_l0t = ak.num(gen_lep0tau_mask) == 0
         conv_mask_l1t = ak.num(gen_lep1tau_mask) == 0
         gen_lep0tau_mask = ak.where(conv_mask_l0t, [[False]], gen_lep0tau_mask)
@@ -845,29 +817,44 @@ class AnalysisProcessor(processor.ProcessorABC):
         nogen_lep0tau_mask = ~gen_lep0tau_mask
         nogen_lep1tau_mask = ~gen_lep1tau_mask
 
-        #print("flat gen_lep0tau_mask", ak.to_list(gen_lep0tau_mask), ak.type(gen_lep0tau_mask))
-        #print("flat ~gen_lep0tau_mask", ak.to_list(~gen_lep0tau_mask), ak.type(~gen_lep0tau_mask))
-        #print("flat gen_lep1tau_mask", ak.to_list(gen_lep1tau_mask), ak.type(gen_lep1tau_mask))
-        #print("flat ~gen_lep1tau_mask", ak.to_list(~gen_lep1tau_mask), ak.type(~gen_lep1tau_mask))
-        #print("\n\n\n\n\n\n")
-
-        mvis_gentaulep0 = ak.where(gen_lep0tau_mask, mvis_gentaulep, -25)
-        mvis_gentaulep1 = ak.where(gen_lep1tau_mask, mvis_gentaulep, -25)
-        mvis_nogentaulep0 = ak.where(nogen_lep0tau_mask, mvis_gentaulep, -25)
-        mvis_nogentaulep1 = ak.where(nogen_lep1tau_mask, mvis_gentaulep, -25)
 
         mvis_taulep = (leading_tau + l_fo_conept_sorted).mass
+        mvis_taulep0 = mvis_taulep[:,0]
+        mvis_taulep1 = mvis_taulep[:,1]
+
+
+        mvis_gentaulep0 = ak.where(gen_lep0tau_mask, mvis_taulep0, -100)
+        mvis_nogentaulep0 = ak.where(nogen_lep0tau_mask, mvis_taulep0, -100)
+        mvis_gentaulep1 = ak.where(gen_lep1tau_mask, mvis_taulep1, -100)
+        mvis_nogentaulep1 = ak.where(nogen_lep1tau_mask, mvis_taulep1, -100)
+        print("mvis_taulep", ak.to_list(mvis_taulep), ak.type(mvis_taulep))
+        print("mvis_taulep0", ak.to_list(mvis_taulep[:,0]), ak.type(mvis_taulep[:,0]))
+        #print("flat gen_lep0tau_mask", ak.to_list(gen_lep0tau_mask), ak.type(gen_lep0tau_mask))
+        #print("flat ~gen_lep0tau_mask", ak.to_list(nogen_lep0tau_mask), ak.type(nogen_lep0tau_mask))                                                                                                                                                                             
+        #print("mvis_gentaulep", ak.to_list(mvis_gentaulep), ak.type(mvis_gentaulep))
+        #print("mvis_taulep0", ak.to_list(mvis_taulep0), ak.type(mvis_taulep0))
+        #print("gen_lep0tau_mask", ak.to_list(gen_lep0tau_mask), ak.type(gen_lep0tau_mask))
+        #print("mvis_gentaulep0", ak.to_list(mvis_gentaulep0), ak.type(mvis_gentaulep0))
+        print("mvis_taulep1", ak.to_list(mvis_taulep[:,1]), ak.type(mvis_taulep[:,1]))
+        print("\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n")
+        #print("gen_lep1tau_mask", ak.to_list(gen_lep1tau_mask), ak.type(gen_lep1tau_mask))
+        #print("mvis_gentaulep1", ak.to_list(mvis_gentaulep1), ak.type(mvis_gentaulep1))
+        #print("flat mvis_nogentaulep0", ak.to_list(mvis_nogentaulep0), ak.type(mvis_nogentaulep0))
+
+
         charge_taulep = leading_tau.charge + l_fo_conept_sorted.charge
-        
+
         leading_tau_jagged = ak.singletons(leading_tau)
         
         closest_taulep = leading_tau_jagged.nearest(l_fo_conept_sorted_padded)
         closest_taulep = ak.pad_none(closest_taulep, 1)
         
         mvis_taulep_dR0 = (leading_tau + closest_taulep).mass
+        mvis_taulep_dR0 = ak.where(ak.is_none(mvis_taulep_dR0), [[None]], mvis_taulep_dR0)
+        mvis_taulep_dR0 = ak.flatten(mvis_taulep_dR0)
 
         genmatch_lep = ak.pad_none(genmatch_lep, 1)
-        gen_closlep_mask = closest_taulep["pt"] == genmatch_lep["pt"]
+        gen_closlep_mask = abs(closest_taulep["pt"] - genmatch_lep["pt"]) < 1.
         
         gen_lepctau_mask = gen_leadtau_mask & gen_closlep_mask
         conv_mask_lct = ak.num(gen_lepctau_mask) == 0
@@ -877,8 +864,18 @@ class AnalysisProcessor(processor.ProcessorABC):
         gen_lepctau_mask = ak.fill_none(gen_lepctau_mask, False)
         nogen_lepctau_mask = ~gen_lepctau_mask
 
-        mvis_gentaulepc = ak.where(gen_lepctau_mask, mvis_gentaulep, -25)
-        mvis_nogentaulepc = ak.where(nogen_lepctau_mask, mvis_gentaulep, -25)
+        mvis_gentaulepc = ak.where(gen_lepctau_mask, mvis_taulep_dR0, -100)
+        mvis_nogentaulepc = ak.where(nogen_lepctau_mask, mvis_taulep_dR0, -100)
+        #print("closest_taulep.pt", ak.to_list(closest_taulep["pt"]), ak.type(closest_taulep["pt"]))
+        #print("mvis_taulep_dR0", ak.to_list(mvis_taulep_dR0), ak.type(mvis_taulep_dR0))
+        #print("check for gen_closlep_mask", ak.to_list(closest_taulep["pt"] - genmatch_lep["pt"]))
+        #print("gen_closlep_mask", ak.to_list(gen_closlep_mask), ak.type(gen_closlep_mask))
+
+        #print("gen_lepctau_mask", ak.to_list(gen_lepctau_mask), ak.type(gen_lepctau_mask))
+        #print("mvis_gentaulepc", ak.to_list(mvis_gentaulepc), ak.type(mvis_gentaulepc))
+        #print("mvis_nogentaulepc", ak.to_list(mvis_gentaulepc), ak.type(mvis_nogentaulepc))
+        #print("\n\n\n\n\n\n\n\n\n\n\n")        
+
         taulepOS_mask = ak.any(charge_taulep == 0, axis=1) #(charge_taulep == 0)
 
         M1T_taulep0 = calculate_M1T(leading_tau, l_fo_conept_sorted[:, 0], met)
@@ -1446,8 +1443,8 @@ class AnalysisProcessor(processor.ProcessorABC):
             varnames["mvis_gentaulepc"] = ak.fill_none(mvis_gentaulepc, -100) #ak.flatten(mvis_gentaulep)
             varnames["mvis_nogentaulepc"] = ak.fill_none(mvis_nogentaulepc, -100) #ak.flatten(mvis_gentaulep)
 
-            varnames["mvis_taulep0"] = mvis_taulep[:, 0]
-            varnames["mvis_taulep1"] = mvis_taulep[:, 1]
+            varnames["mvis_taulep0"] = mvis_taulep0
+            varnames["mvis_taulep1"] = mvis_taulep1
             varnames["mvis_taulep_dR0"] = mvis_taulep_dR0
 
             varnames["M1T_taulep0"] = M1T_taulep0

@@ -12,6 +12,9 @@ from coffea.util import load, save
 from optparse import OptionParser
 from coffea.analysis_tools import PackedSelection
 from coffea.lumi_tools import LumiMask
+import numba
+import random 
+
 
 from topcoffea.modules.GetValuesFromJsons import get_param, get_lumi
 from topcoffea.modules.objects import *
@@ -48,6 +51,373 @@ def construct_cat_name(chan_str,njet_str=None,flav_str=None):
         ret_str = "_".join([ret_str,component])
     return ret_str
 
+boson_dict = {
+    9: "Gluon",
+    21: "Gluon",
+    22: "Photon",
+    23: "Z",
+    24: "W",
+    25: "Higgs"
+}
+
+def trace_boson_ancestor(pdgId, motherIdx, genparticles):
+    while motherIdx >= 0:
+        pdgId = abs(genparticles[motherIdx].pdgId)
+        if pdgId in boson_dict:
+            return boson_dict[pdgId], motherIdx
+        motherIdx = genparticles[motherIdx].genPartIdxMother
+    return "Unknown", -1
+
+
+def find_boson_ancestors_for_event(genparticles_for_event):
+    # Initialize an array of "None" strings with the same length as genparticles_for_event
+    ancestors = ak.Array(["None"] * len(genparticles_for_event))
+
+    masks = []
+    values = []
+
+    # Loop over each genparticle in the event
+    for idx, particle in enumerate(genparticles_for_event):
+        mother_idx = particle.genPartIdxMother
+        while mother_idx >= 0:
+            mother = genparticles_for_event[mother_idx]
+            if abs(mother.pdgId) in boson_dict:
+                mask = (ak.from_iter(range(len(ancestors))) == idx)
+                masks.append(mask)
+                values.append(boson_dict[abs(mother.pdgId)])
+                break
+            mother_idx = mother.genPartIdxMother
+
+    # After the loop
+    combined_mask = ak.concatenate(masks, axis=1)
+    combined_values = ak.concatenate(values, axis=0)
+    ancestors = ak.where(combined_mask, combined_values, ancestors)
+
+    return ancestors
+
+def deltaR(eta1, phi1, eta2, phi2):
+    deta = eta1 - eta2
+    dphi = np.remainder(phi1 - phi2 + np.pi, 2*np.pi) - np.pi
+    return np.sqrt(deta**2 + dphi**2)
+
+def trace_ancestors(particle, genparticles):
+    ancestors = []
+    while particle.genPartIdxMother > 0:
+        mother = genparticles[particle.genPartIdxMother]
+        ancestors.append(particle.genPartIdxMother)
+        particle = mother
+    return ancestors
+
+def GenLeptonTauPairs(genparticles, electrons, muons, taus, depth=20):
+    tele_mask = (electrons.genPartFlav == 15) | (electrons.genPartFlav == 1)
+    tmu_mask = (muons.genPartFlav == 15) | (muons.genPartFlav == 1)
+    htau_mask = taus.genPartFlav == 5
+
+    gens_electrons = electrons.matched_gen
+    gens_muons = muons.matched_gen
+    gentau_mask = abs(genparticles.pdgId)==15
+    gens_taus = genparticles[gentau_mask]
+    gele_mask = abs(gens_taus.distinctChildren.pdgId)==11
+    gmu_mask = abs(gens_taus.distinctChildren.pdgId)==13
+    lglep_mask = gele_mask | gmu_mask
+    lglep_mask = ~ak.any(lglep_mask, axis=-1)
+    gens_taus = gens_taus[lglep_mask]
+
+    dP_gens_electrons = gens_electrons.distinctParent
+    dP_gens_muons = gens_muons.distinctParent                                                                      
+    dP_gens_taus = gens_taus.distinctParent
+
+    comm_ele_mask = ak.zeros_like(electrons.pt, dtype=bool)
+    comm_mu_mask = ak.zeros_like(muons.pt, dtype=bool)
+    comm_tau_mask = ak.zeros_like(taus.pt, dtype=bool)
+
+    ele_anc = ak.zeros_like(electrons.pt)
+    print("ele_anc", ak.to_list(ele_anc))
+
+    ### INSERIRE UNA MASK PER VETARE LE COPPIE DI LEP E TAU CHE IN REALTA SONO LA STESSA PARTICELLA
+    for lev in range(depth):
+        ele_anc = ak.concatenate([ele_anc, dP_gens_electrons.pdgId], axis=-1)
+        ele_anc_mask = ~ak.is_none(ele_anc, axis=-1)
+        ele_anc = ele_anc[ele_anc_mask]
+        dP_etau_pairs = ak.cartesian({"a": dP_gens_electrons, "b": dP_gens_taus})                                  
+        dP_etau_pairs_idx = ak.argcartesian({"a": dP_gens_electrons, "b": dP_gens_taus})                         
+        dP_mutau_pairs = ak.cartesian({"a": dP_gens_muons, "b": dP_gens_taus})                                  
+        dP_mutau_pairs_idx = ak.argcartesian({"a": dP_gens_muons, "b": dP_gens_taus})                              
+        dP_etau_same_objects = (dP_etau_pairs["a"].pdgId == dP_etau_pairs["b"].pdgId) & (dP_etau_pairs["a"].pt == dP_etau_pairs["b"].pt)
+        dP_mutau_same_objects = (dP_mutau_pairs["a"].pdgId == dP_mutau_pairs["b"].pdgId) & (dP_mutau_pairs["a"].pt == dP_mutau_pairs["b"].pt)
+        dP_etau_same_objects = ak.fill_none(dP_etau_same_objects, False)                                         
+        dP_mutau_same_objects = ak.fill_none(dP_mutau_same_objects, False)                    
+        
+        # Transform them in arrays to avoid bad::alloc problems
+        dP_etau_same_objects_array = ak.Array(dP_etau_same_objects)
+        dP_mutau_same_objects_array = ak.Array(dP_mutau_same_objects)
+        ##dP_etau_same_objects = ak.fill_none(ak.pad_none(dP_etau_same_objects, target=100, axis=1, clip=True), False)
+        ##dP_mutau_same_objects = ak.fill_none(ak.pad_none(dP_mutau_same_objects, target=100, axis=1, clip=True), False)
+
+        # Create a replacement array of the same shape as dP_etau_pairs_idx but with all values set to (-1, -1)
+        replacement_etau_array, dP_etau_pairs_idx = ak.broadcast_arrays({"a": -1, "b": -1}, dP_etau_pairs_idx)
+        replacement_mutau_array, dP_mutau_pairs_idx = ak.broadcast_arrays({"a": -1, "b": -1}, dP_mutau_pairs_idx)
+        
+        # Use ak.where to get the desired result, corresponding to ak.where but giving -1 when the condition is False
+        result_etau = ak.where(dP_etau_same_objects_array, dP_etau_pairs_idx, replacement_etau_array)
+        result_mutau = ak.where(dP_mutau_same_objects_array, dP_mutau_pairs_idx, replacement_mutau_array)
+
+        ele_indices = result_etau['a']
+        mu_indices = result_mutau['a']
+        tau_eindices = result_etau['b']
+        tau_mindices = result_mutau['b']
+
+
+
+        # Create masks of the same shape as electrons and taus with all False values                     
+        ele_mask = ak.zeros_like(electrons.pt, dtype=bool)
+        mu_mask = ak.zeros_like(muons.pt, dtype=bool)
+        tau_emask = ak.zeros_like(taus.pt, dtype=bool)
+        tau_mmask = ak.zeros_like(taus.pt, dtype=bool)
+        tau_mask = ak.zeros_like(taus.pt, dtype=bool)
+
+        # Identify subarrays with only -1        # Extract the maximum value from each subarray        #Replace subarrays with only -1 with a single -1 and replace other subarrays with their max value
+
+        ele_indices = ak.to_list(ak.fill_none(ak.where(ak.all(ele_indices == -1, axis=1), -1, ak.max(ele_indices, axis=1)), -1))
+        mu_indices = ak.to_list(ak.fill_none(ak.where(ak.all(mu_indices == -1, axis=1), -1, ak.max(mu_indices, axis=1)), -1))
+        tau_eindices = ak.to_list(ak.fill_none(ak.where(ak.all(tau_eindices == -1, axis=1), -1, ak.max(tau_eindices, axis=1)), -1))
+        tau_mindices = ak.to_list(ak.fill_none(ak.where(ak.all(tau_mindices == -1, axis=1), -1, ak.max(tau_mindices, axis=1)), -1))
+
+        ##print("ele_indices, tau_eindices", ele_indices, tau_eindices)#, ak.type(ele_indices), ak.type(tau_eindices))
+        ##print("mu_indices, tau_mindices", mu_indices, tau_mindices)#, ak.type(mu_indices), ak.type(tau_mindices))
+        ##print("\n\n\n\n\n")
+
+        # Set True values at the indices with common objects                 
+        ele_mask = ak.local_index(ele_mask) == ele_indices               
+        tau_emask = ak.local_index(tau_emask) == tau_eindices            
+        mu_mask = ak.local_index(mu_mask) == mu_indices                  
+        tau_mmask = ak.local_index(tau_mmask) == tau_mindices  
+        
+        # OR the masks for taus
+        tau_mask = tau_emask | tau_mmask 
+        
+        # Updating global masks
+        comm_ele_mask = comm_ele_mask | ele_mask
+        comm_mu_mask = comm_mu_mask | mu_mask
+        comm_tau_mask = comm_tau_mask | tau_mask
+        
+        # Preparing for next depth level in GenParts
+        dP_gens_electrons = dP_gens_electrons.distinctParent
+        dP_gens_muons = dP_gens_muons.distinctParent
+        dP_gens_taus = dP_gens_taus.distinctParent
+
+
+    #print("comm_ele_mask", comm_ele_mask, ak.any(comm_ele_mask, axis=1), ak.any(comm_ele_mask))
+    #print("comm_mu_mask", comm_mu_mask, ak.any(comm_mu_mask, axis=1), ak.any(comm_mu_mask))
+    #print("comm_tau_mask", comm_tau_mask, ak.any(comm_tau_mask, axis=1), ak.any(comm_tau_mask))
+
+    ##anyele = ak.any(comm_ele_mask, axis=1)
+    ##anymu = ak.any(comm_mu_mask, axis=1)
+    
+    comm_tau_mask = comm_tau_mask #& htau_mask #& (anyele | anymu)   
+    #anytau = ak.any(comm_tau_mask, axis=1)
+    #print("comm_ele_mask", comm_ele_mask, ak.any(comm_ele_mask, axis=1), ak.any(comm_ele_mask))
+    #print("comm_mu_mask", comm_mu_mask, ak.any(comm_mu_mask, axis=1), ak.any(comm_mu_mask))
+    #print("comm_tau_mask", comm_tau_mask, ak.any(comm_tau_mask, axis=1), ak.any(comm_tau_mask))
+
+    comm_ele_mask = comm_ele_mask & tele_mask #& anytau
+    comm_mu_mask = comm_mu_mask & tmu_mask #& anytau
+
+    ##print("comm_ele_mask", comm_ele_mask, ak.any(comm_ele_mask, axis=1), ak.any(ak.any(comm_ele_mask, axis=1)))
+    ##print("comm_mu_mask", comm_mu_mask, ak.any(comm_mu_mask, axis=1), ak.any(ak.any(comm_mu_mask, axis=1)))
+    ##print("comm_tau_mask", comm_tau_mask, ak.any(comm_tau_mask, axis=1), ak.any(ak.any(comm_tau_mask, axis=1)))
+
+    # Add the masks as new fields to electrons and taus
+    electrons["isTauPaired"] = comm_ele_mask #& tele_mask
+    muons["isTauPaired"] = comm_mu_mask #& tmu_mask
+    taus["isLeptonPaired"] = comm_tau_mask #& htau_mask
+    
+
+    
+def find_lepton_tau_pairs(ev_genparticles, leptons, taus):
+    # Define masks for leptons based on genPartFlav
+    lepton_mask = (leptons.genPartFlav == 15) | (leptons.genPartFlav == 1)
+    
+    # Filter leptons using the mask
+    selected_leptons = leptons[lepton_mask]
+
+    # Get associated GenPart for these leptons
+    associated_genparts = ev_genparticles[selected_leptons.genPartIdx]
+
+    # Define mask for ev_genparticles to identify taus
+    gen_tau_mask = abs(ev_genparticles.pdgId) == 15
+    
+    # Filter ev_genparticles using the tau mask
+    gen_taus = ev_genparticles[gen_tau_mask]
+
+    # Filter taus with genPartFlav == 5
+    taus = taus[taus.genPartFlav == 5]
+
+    lepton_tau_pairs = None
+    genmatched_lepton = ak.Array([[]])
+    genmatched_tau = ak.Array([[]])
+    lepton_tau_masses = [-25.]
+    common_ancestors_list = []
+
+    # Find common ancestors for each lepton and check if there's a tau with the same ancestor
+    for idx, lepton in enumerate(associated_genparts):
+
+        lepton_ancestors = trace_ancestors(lepton, ev_genparticles)
+        
+        # Create a mask for gen_taus that have common ancestors with the lepton
+        common_ancestor_mask = [any(ancestor in lepton_ancestors for ancestor in trace_ancestors(gen_tau, ev_genparticles)) for gen_tau in gen_taus]
+        
+        # Filter gen_taus using the common_ancestor_mask
+        common_gen_taus = gen_taus[common_ancestor_mask]
+        
+        if ak.any(common_gen_taus):
+            # Calculate deltaR for each tau in taus to common_gen_taus, because genPartIdx does not work for hadronic taus
+            dRs = deltaR(taus.eta, taus.phi, common_gen_taus.eta[0], common_gen_taus.phi[0])
+
+            # Check if dRs is not empty
+            if len(dRs) > 0:
+                # Find the index of the tau with the smallest deltaR
+                closest_tau_idx = np.argmin(dRs)
+
+                # Select the closest tau
+                closest_tau = taus[closest_tau_idx]
+
+                # Fetch the corresponding lepton object from the 'leptons' collection using the index
+                corresponding_lepton = selected_leptons[idx]
+                
+                lepton_tau_dR = deltaR(corresponding_lepton.eta, corresponding_lepton.phi, closest_tau.eta, closest_tau.phi)
+
+                lepton_tau = corresponding_lepton + closest_tau
+                mvis = lepton_tau.mass                
+
+                if lepton_tau_pairs is None:
+                    lepton_tau_pairs = []
+
+                if lepton_tau_masses == [-25.]:
+                    lepton_tau_masses = []
+
+                lepton_tau_pairs.append([corresponding_lepton, closest_tau, lepton_tau_dR])
+                lepton_tau_masses.append(mvis)
+
+                # Find the common ancestors between the lepton and the gen_tau
+                tau_ancestors = trace_ancestors(common_gen_taus[0], ev_genparticles)
+                actual_common_ancestors = list(set(lepton_ancestors) & set(tau_ancestors))
+            
+                # Append the common ancestors to the list
+                common_ancestors_list.append(actual_common_ancestors)
+    
+    max_ancestor_idx = None
+    
+    if lepton_tau_pairs is not None and len(lepton_tau_pairs) >= 1:
+        # Find the index of the pair with the highest value of the first common ancestor
+        max_ancestor_idx = np.argmax([ancestors[0] if ancestors else -np.inf for ancestors in common_ancestors_list])
+        # Retain only the pair with the highest value of the first common ancestor
+        genmatched_lepton = ak.Array([[lepton_tau_pairs[max_ancestor_idx][0]]])
+        genmatched_tau = ak.Array([[lepton_tau_pairs[max_ancestor_idx][1]]])
+        lepton_tau_masses = ak.Array([lepton_tau_masses[max_ancestor_idx]])
+
+        ##common_ancestors_list = [common_ancestors_list[max_ancestor_idx]]
+
+    ##return lepton_tau_pairs, lepton_tau_masses
+    return genmatched_lepton, genmatched_tau, lepton_tau_masses
+
+def get_closest_taus_for_all_events(genparticles, leptons, taus):
+    ##closest_taus = []
+    genmatched_leps = ak.Array([])
+    genmatched_taus = ak.Array([])
+    mvis_values = ak.Array([])
+
+    for i, ev_genparticles in enumerate(genparticles):
+        ##closest_tau, mvis = find_lepton_tau_pairs(ev_genparticles, leptons[i], taus[i])
+        genmatched_lep, genmatched_tau, mvis = find_lepton_tau_pairs(ev_genparticles, leptons[i], taus[i])
+        
+        ##closest_taus.append(closest_tau)
+        ##genmatched_leps.append(genmatched_lep)
+        genmatched_leps = ak.concatenate([genmatched_leps, genmatched_lep], axis=0)
+        genmatched_taus = ak.concatenate([genmatched_taus, genmatched_tau], axis=0)
+        ##genmatched_taus.append(genmatched_tau)
+        ##mvis_values.append(mvis)
+        mvis_values = ak.concatenate([mvis_values, mvis], axis=0)
+    
+    ##return ak.Array(genmatched_leps), ak.Array(genmatched_taus), ak.Array(mvis_values)
+    return genmatched_leps, genmatched_taus, mvis_values
+
+
+def calculate_M1T(reco_obj0, reco_obj1, met):
+    # Convert the reconstructed objects to PtEtaPhiMLorentzVector structure
+    reco_obj0_vector = ak.zip({
+        "pt": reco_obj0.pt,
+        "eta": reco_obj0.eta,
+        "phi": reco_obj0.phi,
+        "mass": reco_obj0.mass if hasattr(reco_obj0, 'mass') else ak.zeros_like(reco_obj0.pt),
+    }, with_name="PtEtaPhiMLorentzVector")
+    
+    reco_obj1_vector = ak.zip({
+        "pt": reco_obj1.pt,
+        "eta": reco_obj1.eta,
+        "phi": reco_obj1.phi,
+        "mass": reco_obj1.mass if hasattr(reco_obj1, 'mass') else ak.zeros_like(reco_obj1.pt),
+    }, with_name="PtEtaPhiMLorentzVector")
+    
+    # Combine the two reconstructed objects into a single system
+    visible_system = reco_obj0_vector + reco_obj1_vector
+
+    # Compute the transverse energy for each object
+    ET_reco_obj0 = np.sqrt(reco_obj0_vector.pt**2 + reco_obj0_vector.mass**2)
+    ET_reco_obj1 = np.sqrt(reco_obj1_vector.pt**2 + reco_obj1_vector.mass**2)
+    
+    # Compute the combined transverse energy
+    #ET_visible_system = ET_reco_obj0 + ET_reco_obj1
+    ET_visible_system = np.sqrt(visible_system.pt**2 + visible_system.mass**2)
+    
+    # Compute the combined transverse momentum components for the visible system
+    px_visible_system = visible_system.pt * np.cos(visible_system.phi)
+    py_visible_system = visible_system.pt * np.sin(visible_system.phi)
+
+    met_px = met.pt*np.cos(met.phi)
+    met_py = met.pt*np.sin(met.phi)
+
+    # Compute the M1T using the combined visible system and MET
+    M1T_squared = (ET_visible_system + met.pt)**2 - (px_visible_system + met_px)**2 - (py_visible_system + met_py)**2
+    M1T = np.sqrt(M1T_squared)
+
+    return M1T
+
+
+
+def calculate_Mo1(reco_obj0, reco_obj1, met):
+    # Convert the reconstructed objects to massless PtEtaPhiMLorentzVector structure
+    reco_obj0_massless = ak.zip({
+        "pt": reco_obj0.pt,
+        "eta": reco_obj0.eta,
+        "phi": reco_obj0.phi,
+        "mass": ak.zeros_like(reco_obj0.pt),
+    }, with_name="PtEtaPhiMLorentzVector")
+    
+    reco_obj1_massless = ak.zip({
+        "pt": reco_obj1.pt,
+        "eta": reco_obj1.eta,
+        "phi": reco_obj1.phi,
+        "mass": ak.zeros_like(reco_obj1.pt),
+    }, with_name="PtEtaPhiMLorentzVector")
+    
+    # For massless objects, ET is simply pt
+    ET_reco_obj0 = reco_obj0_massless.pt
+    ET_reco_obj1 = reco_obj1_massless.pt
+    
+    # Compute the combined transverse momentum components for the visible objects
+    px_reco_obj0 = ET_reco_obj0 * np.cos(reco_obj0_massless.phi)
+    py_reco_obj0 = ET_reco_obj0 * np.sin(reco_obj0_massless.phi)
+    
+    px_reco_obj1 = ET_reco_obj1 * np.cos(reco_obj1_massless.phi)
+    py_reco_obj1 = ET_reco_obj1 * np.sin(reco_obj1_massless.phi)
+    
+    # Compute the Mo1 using the separated visible objects and MET
+    Mo1_squared = (ET_reco_obj0 + ET_reco_obj1 + met.pt)**2 - (px_reco_obj0 + px_reco_obj1 + met.pt*np.cos(met.phi))**2 - (py_reco_obj0 + py_reco_obj1 + met.pt*np.sin(met.phi))**2
+    Mo1 = np.sqrt(Mo1_squared)
+    #Mo1 = Mo1_squared
+    
+    return Mo1
 
 class AnalysisProcessor(processor.ProcessorABC):
 
@@ -59,30 +429,63 @@ class AnalysisProcessor(processor.ProcessorABC):
 
         # Create the histograms
         self._accumulator = processor.dict_accumulator({
-            "invmass" : HistEFT("Events", wc_names_lst, hist.Cat("sample", "sample"), hist.Cat("channel", "channel"), hist.Cat("systematic", "Systematic Uncertainty"),hist.Cat("appl", "AR/SR"), hist.Bin("invmass", "$m_{\ell\ell}$ (GeV) ", 100, 0, 200)),
-            #"ptbl"    : HistEFT("Events", wc_names_lst, hist.Cat("sample", "sample"), hist.Cat("channel", "channel"), hist.Cat("systematic", "Systematic Uncertainty"),hist.Cat("appl", "AR/SR"), hist.Bin("ptbl",    "$p_{T}^{b\mathrm{-}jet+\ell_{min(dR)}}$ (GeV) ", 40, 0, 1000)),
-            #"ptz"     : HistEFT("Events", wc_names_lst, hist.Cat("sample", "sample"), hist.Cat("channel", "channel"), hist.Cat("systematic", "Systematic Uncertainty"),hist.Cat("appl", "AR/SR"), hist.Bin("ptz",     "$p_{T}$ Z (GeV)", 12, 0, 600)),
+            ##"invmass" : HistEFT("Events", wc_names_lst, hist.Cat("sample", "sample"), hist.Cat("channel", "channel"), hist.Cat("systematic", "Systematic Uncertainty"),hist.Cat("appl", "AR/SR"), hist.Bin("invmass", "$m_{\ell\ell}$ (GeV) ", 100, 0, 200)),
+            "mvis_gentaulep": HistEFT("Events", wc_names_lst, hist.Cat("sample", "sample"), hist.Cat("channel", "channel"), hist.Cat("systematic", "Systematic Uncertainty"), hist.Cat("appl", "AR/SR"), hist.Bin("mvis_gentaulep", "Invariant Mass of gne tau-lepton pair (GeV)", 50, 0, 500)),
+            "mvis_gentaulep0": HistEFT("Events", wc_names_lst, hist.Cat("sample", "sample"), hist.Cat("channel", "channel"), hist.Cat("systematic", "Systematic Uncertainty"), hist.Cat("appl", "AR/SR"), hist.Bin("mvis_gentaulep0", "Invariant Mass of gne tau-lepton pair (GeV)", 50, 0, 500)),
+            "mvis_nogentaulep0": HistEFT("Events", wc_names_lst, hist.Cat("sample", "sample"), hist.Cat("channel", "channel"), hist.Cat("systematic", "Systematic Uncertainty"), hist.Cat("appl", "AR/SR"), hist.Bin("mvis_nogentaulep0", "Invariant Mass of gne tau-lepton pair (GeV)", 50, 0, 500)),
+            "mvis_gentaulep1": HistEFT("Events", wc_names_lst, hist.Cat("sample", "sample"), hist.Cat("channel", "channel"), hist.Cat("systematic", "Systematic Uncertainty"), hist.Cat("appl", "AR/SR"), hist.Bin("mvis_gentaulep1", "Invariant Mass of gne tau-lepton pair (GeV)", 50, 0, 500)),
+            "mvis_nogentaulep1": HistEFT("Events", wc_names_lst, hist.Cat("sample", "sample"), hist.Cat("channel", "channel"), hist.Cat("systematic", "Systematic Uncertainty"), hist.Cat("appl", "AR/SR"), hist.Bin("mvis_nogentaulep1", "Invariant Mass of gne tau-lepton pair (GeV)", 50, 0, 500)),
+            "mvis_gentaulepc": HistEFT("Events", wc_names_lst, hist.Cat("sample", "sample"), hist.Cat("channel", "channel"), hist.Cat("systematic", "Systematic Uncertainty"), hist.Cat("appl", "AR/SR"), hist.Bin("mvis_gentaulepc", "Invariant Mass of gne tau-lepton pair (GeV)", 50, 0, 500)),
+            "mvis_nogentaulepc": HistEFT("Events", wc_names_lst, hist.Cat("sample", "sample"), hist.Cat("channel", "channel"), hist.Cat("systematic", "Systematic Uncertainty"), hist.Cat("appl", "AR/SR"), hist.Bin("mvis_nogentaulepc", "Invariant Mass of gne tau-lepton pair (GeV)", 50, 0, 500)),
+            "mvis_taulep0": HistEFT("Events", wc_names_lst, hist.Cat("sample", "sample"), hist.Cat("channel", "channel"), hist.Cat("systematic", "Systematic Uncertainty"), hist.Cat("appl", "AR/SR"), hist.Bin("mvis_taulep0", "Invariant Mass of tau-lepton1 pair (GeV)", 50, 0, 500)),
+            "mvis_taulep1": HistEFT("Events", wc_names_lst, hist.Cat("sample", "sample"), hist.Cat("channel", "channel"), hist.Cat("systematic", "Systematic Uncertainty"), hist.Cat("appl", "AR/SR"), hist.Bin("mvis_taulep1", "Invariant Mass of closest tau-lepton pair (GeV)", 50, 0, 500)),
+            "mvis_taulep_dR0": HistEFT("Events", wc_names_lst, hist.Cat("sample", "sample"), hist.Cat("channel", "channel"), hist.Cat("systematic", "Systematic Uncertainty"), hist.Cat("appl", "AR/SR"), hist.Bin("mvis_taulep_dR0", "Invariant Mass of tau-lepton0 pair (GeV)", 50, 0, 500)),
+
+            #"M1T_taulep0": HistEFT("Events", wc_names_lst, hist.Cat("sample", "sample"), hist.Cat("channel", "channel"), hist.Cat("systematic", "Systematic Uncertainty"), hist.Cat("appl", "AR/SR"), hist.Bin("M1T_taulep0", "Invariant Mass of tau-lepton0 pair (GeV)", 25, 0, 500)),
+            #"M1T_taulep1": HistEFT("Events", wc_names_lst, hist.Cat("sample", "sample"), hist.Cat("channel", "channel"), hist.Cat("systematic", "Systematic Uncertainty"), hist.Cat("appl", "AR/SR"), hist.Bin("M1T_taulep1", "Invariant Mass of tau-lepton0 pair (GeV)", 25, 0, 500)),
+
+            #"M1T_taulep_dR0": HistEFT("Events", wc_names_lst, hist.Cat("sample", "sample"), hist.Cat("channel", "channel"), hist.Cat("systematic", "Systematic Uncertainty"), hist.Cat("appl", "AR/SR"), hist.Bin("M1T_taulep_dR0", "Invariant Mass of tau-lepton0 pair (GeV)", 25, 0, 500)),
+
+            #"Mo1_taulep0": HistEFT("Events", wc_names_lst, hist.Cat("sample", "sample"), hist.Cat("channel", "channel"), hist.Cat("systematic", "Systematic Uncertainty"), hist.Cat("appl", "AR/SR"), hist.Bin("Mo1_taulep0", "Invariant Mass of tau-lepton0 pair (GeV)", 25, 0, 500)),
+            #"Mo1_taulep1": HistEFT("Events", wc_names_lst, hist.Cat("sample", "sample"), hist.Cat("channel", "channel"), hist.Cat("systematic", "Systematic Uncertainty"), hist.Cat("appl", "AR/SR"), hist.Bin("Mo1_taulep1", "Invariant Mass of tau-lepton0 pair (GeV)", 25, 0, 500)),
+
+            #"Mo1_taulep_dR0": HistEFT("Events", wc_names_lst, hist.Cat("sample", "sample"), hist.Cat("channel", "channel"), hist.Cat("systematic", "Systematic Uncertainty"), hist.Cat("appl", "AR/SR"), hist.Bin("Mo1_taulep_dR0", "Invariant Mass of tau-lepton0 pair (GeV)", 25, 0, 500)),
+
+            #"puppiM1T_taulep0": HistEFT("Events", wc_names_lst, hist.Cat("sample", "sample"), hist.Cat("channel", "channel"), hist.Cat("systematic", "Systematic Uncertainty"), hist.Cat("appl", "AR/SR"), hist.Bin("puppiM1T_taulep0", "Invariant Mass of tau-lepton0 pair (GeV)", 25, 0, 500)),
+            #"puppiM1T_taulep1": HistEFT("Events", wc_names_lst, hist.Cat("sample", "sample"), hist.Cat("channel", "channel"), hist.Cat("systematic", "Systematic Uncertainty"), hist.Cat("appl", "AR/SR"), hist.Bin("puppiM1T_taulep1", "Invariant Mass of tau-lepton0 pair (GeV)", 25, 0, 500)),
+
+            #"puppiM1T_taulep_dR0": HistEFT("Events", wc_names_lst, hist.Cat("sample", "sample"), hist.Cat("channel", "channel"), hist.Cat("systematic", "Systematic Uncertainty"), hist.Cat("appl", "AR/SR"), hist.Bin("puppiM1T_taulep_dR0", "Invariant Mass of tau-lepton0 pair (GeV)", 25, 0, 500)),
+
+            #"puppiMo1_taulep0": HistEFT("Events", wc_names_lst, hist.Cat("sample", "sample"), hist.Cat("channel", "channel"), hist.Cat("systematic", "Systematic Uncertainty"), hist.Cat("appl", "AR/SR"), hist.Bin("puppiMo1_taulep0", "Invariant Mass of tau-lepton0 pair (GeV)", 25, 0, 500)),
+            #"puppiMo1_taulep1": HistEFT("Events", wc_names_lst, hist.Cat("sample", "sample"), hist.Cat("channel", "channel"), hist.Cat("systematic", "Systematic Uncertainty"), hist.Cat("appl", "AR/SR"), hist.Bin("puppiMo1_taulep1", "Invariant Mass of tau-lepton0 pair (GeV)", 25, 0, 500)),
+
+            #"puppiMo1_taulep_dR0": HistEFT("Events", wc_names_lst, hist.Cat("sample", "sample"), hist.Cat("channel", "channel"), hist.Cat("systematic", "Systematic Uncertainty"), hist.Cat("appl", "AR/SR"), hist.Bin("puppiMo1_taulep_dR0", "Invariant Mass of tau-lepton0 pair (GeV)", 25, 0, 500)),
+
+
+            ##"ptbl"    : HistEFT("Events", wc_names_lst, hist.Cat("sample", "sample"), hist.Cat("channel", "channel"), hist.Cat("systematic", "Systematic Uncertainty"),hist.Cat("appl", "AR/SR"), hist.Bin("ptbl",    "$p_{T}^{b\mathrm{-}jet+\ell_{min(dR)}}$ (GeV) ", 40, 0, 1000)),
+            ##"ptz"     : HistEFT("Events", wc_names_lst, hist.Cat("sample", "sample"), hist.Cat("channel", "channel"), hist.Cat("systematic", "Systematic Uncertainty"),hist.Cat("appl", "AR/SR"), hist.Bin("ptz",     "$p_{T}$ Z (GeV)", 12, 0, 600)),
             "njets"   : HistEFT("Events", wc_names_lst, hist.Cat("sample", "sample"), hist.Cat("channel", "channel"), hist.Cat("systematic", "Systematic Uncertainty"),hist.Cat("appl", "AR/SR"), hist.Bin("njets",   "Jet multiplicity ", 10, 0, 10)),
-            "nbtagsl" : HistEFT("Events", wc_names_lst, hist.Cat("sample", "sample"), hist.Cat("channel", "channel"), hist.Cat("systematic", "Systematic Uncertainty"),hist.Cat("appl", "AR/SR"), hist.Bin("nbtagsl", "Loose btag multiplicity ", 5, 0, 5)),
+            ##"nbtagsl" : HistEFT("Events", wc_names_lst, hist.Cat("sample", "sample"), hist.Cat("channel", "channel"), hist.Cat("systematic", "Systematic Uncertainty"),hist.Cat("appl", "AR/SR"), hist.Bin("nbtagsl", "Loose btag multiplicity ", 5, 0, 5)),
             "l0pt"    : HistEFT("Events", wc_names_lst, hist.Cat("sample", "sample"), hist.Cat("channel", "channel"), hist.Cat("systematic", "Systematic Uncertainty"),hist.Cat("appl", "AR/SR"), hist.Bin("l0pt",    "Leading lep $p_{T}$ (GeV)", 10, 0, 500)),
-            "l1pt"    : HistEFT("Events", wc_names_lst, hist.Cat("sample", "sample"), hist.Cat("channel", "channel"), hist.Cat("systematic", "Systematic Uncertainty"),hist.Cat("appl", "AR/SR"), hist.Bin("l1pt",    "Subleading lep $p_{T}$ (GeV)", 10, 0, 100)),
-            "l1eta"   : HistEFT("Events", wc_names_lst, hist.Cat("sample", "sample"), hist.Cat("channel", "channel"), hist.Cat("systematic", "Systematic Uncertainty"),hist.Cat("appl", "AR/SR"), hist.Bin("l1eta",   "Subleading $\eta$", 20, -2.5, 2.5)),
-            "j0pt"    : HistEFT("Events", wc_names_lst, hist.Cat("sample", "sample"), hist.Cat("channel", "channel"), hist.Cat("systematic", "Systematic Uncertainty"),hist.Cat("appl", "AR/SR"), hist.Bin("j0pt",    "Leading jet  $p_{T}$ (GeV)", 10, 0, 500)),
-            "b0pt"    : HistEFT("Events", wc_names_lst, hist.Cat("sample", "sample"), hist.Cat("channel", "channel"), hist.Cat("systematic", "Systematic Uncertainty"),hist.Cat("appl", "AR/SR"), hist.Bin("b0pt",    "Leading b jet  $p_{T}$ (GeV)", 10, 0, 500)),
-            "l0eta"   : HistEFT("Events", wc_names_lst, hist.Cat("sample", "sample"), hist.Cat("channel", "channel"), hist.Cat("systematic", "Systematic Uncertainty"),hist.Cat("appl", "AR/SR"), hist.Bin("l0eta",   "Leading lep $\eta$", 20, -2.5, 2.5)),
-            "j0eta"   : HistEFT("Events", wc_names_lst, hist.Cat("sample", "sample"), hist.Cat("channel", "channel"), hist.Cat("systematic", "Systematic Uncertainty"),hist.Cat("appl", "AR/SR"), hist.Bin("j0eta",   "Leading jet  $\eta$", 30, -3.0, 3.0)),
-            "ht"      : HistEFT("Events", wc_names_lst, hist.Cat("sample", "sample"), hist.Cat("channel", "channel"), hist.Cat("systematic", "Systematic Uncertainty"),hist.Cat("appl", "AR/SR"), hist.Bin("ht",      "H$_{T}$ (GeV)", 20, 0, 1000)),
-            "met"     : HistEFT("Events", wc_names_lst, hist.Cat("sample", "sample"), hist.Cat("channel", "channel"), hist.Cat("systematic", "Systematic Uncertainty"),hist.Cat("appl", "AR/SR"), hist.Bin("met",     "MET (GeV)", 20, 0, 400)),
-            #"ljptsum" : HistEFT("Events", wc_names_lst, hist.Cat("sample", "sample"), hist.Cat("channel", "channel"), hist.Cat("systematic", "Systematic Uncertainty"),hist.Cat("appl", "AR/SR"), hist.Bin("ljptsum", "S$_{T}$ (GeV)", 11, 0, 1100)),
-            #"o0pt"    : HistEFT("Events", wc_names_lst, hist.Cat("sample", "sample"), hist.Cat("channel", "channel"), hist.Cat("systematic", "Systematic Uncertainty"),hist.Cat("appl", "AR/SR"), hist.Bin("o0pt",    "Leading l or b jet $p_{T}$ (GeV)", 10, 0, 500)),
-            #"bl0pt"   : HistEFT("Events", wc_names_lst, hist.Cat("sample", "sample"), hist.Cat("channel", "channel"), hist.Cat("systematic", "Systematic Uncertainty"),hist.Cat("appl", "AR/SR"), hist.Bin("bl0pt",   "Leading (b+l) $p_{T}$ (GeV)", 10, 0, 500)),
-            #"lj0pt"   : HistEFT("Events", wc_names_lst, hist.Cat("sample", "sample"), hist.Cat("channel", "channel"), hist.Cat("systematic", "Systematic Uncertainty"),hist.Cat("appl", "AR/SR"), hist.Bin("lj0pt",   "Leading pt of pair from l+j collection (GeV)", 12, 0, 600)),
+            ##"l1pt"    : HistEFT("Events", wc_names_lst, hist.Cat("sample", "sample"), hist.Cat("channel", "channel"), hist.Cat("systematic", "Systematic Uncertainty"),hist.Cat("appl", "AR/SR"), hist.Bin("l1pt",    "Subleading lep $p_{T}$ (GeV)", 10, 0, 100)),
+            ##"l1eta"   : HistEFT("Events", wc_names_lst, hist.Cat("sample", "sample"), hist.Cat("channel", "channel"), hist.Cat("systematic", "Systematic Uncertainty"),hist.Cat("appl", "AR/SR"), hist.Bin("l1eta",   "Subleading $\eta$", 20, -2.5, 2.5)),
+            ##"j0pt"    : HistEFT("Events", wc_names_lst, hist.Cat("sample", "sample"), hist.Cat("channel", "channel"), hist.Cat("systematic", "Systematic Uncertainty"),hist.Cat("appl", "AR/SR"), hist.Bin("j0pt",    "Leading jet  $p_{T}$ (GeV)", 10, 0, 500)),
+            ##"b0pt"    : HistEFT("Events", wc_names_lst, hist.Cat("sample", "sample"), hist.Cat("channel", "channel"), hist.Cat("systematic", "Systematic Uncertainty"),hist.Cat("appl", "AR/SR"), hist.Bin("b0pt",    "Leading b jet  $p_{T}$ (GeV)", 10, 0, 500)),
+            ##"l0eta"   : HistEFT("Events", wc_names_lst, hist.Cat("sample", "sample"), hist.Cat("channel", "channel"), hist.Cat("systematic", "Systematic Uncertainty"),hist.Cat("appl", "AR/SR"), hist.Bin("l0eta",   "Leading lep $\eta$", 20, -2.5, 2.5)),
+            ##"j0eta"   : HistEFT("Events", wc_names_lst, hist.Cat("sample", "sample"), hist.Cat("channel", "channel"), hist.Cat("systematic", "Systematic Uncertainty"),hist.Cat("appl", "AR/SR"), hist.Bin("j0eta",   "Leading jet  $\eta$", 30, -3.0, 3.0)),
+            ##"ht"      : HistEFT("Events", wc_names_lst, hist.Cat("sample", "sample"), hist.Cat("channel", "channel"), hist.Cat("systematic", "Systematic Uncertainty"),hist.Cat("appl", "AR/SR"), hist.Bin("ht",      "H$_{T}$ (GeV)", 20, 0, 1000)),
+            #"met"     : HistEFT("Events", wc_names_lst, hist.Cat("sample", "sample"), hist.Cat("channel", "channel"), hist.Cat("systematic", "Systematic Uncertainty"),hist.Cat("appl", "AR/SR"), hist.Bin("met",     "MET (GeV)", 20, 0, 400)),
+            #"puppimet"     : HistEFT("Events", wc_names_lst, hist.Cat("sample", "sample"), hist.Cat("channel", "channel"), hist.Cat("systematic", "Systematic Uncertainty"),hist.Cat("appl", "AR/SR"), hist.Bin("puppimet",     "PuppiMET (GeV)", 20, 0, 400)),
+            ##"ljptsum" : HistEFT("Events", wc_names_lst, hist.Cat("sample", "sample"), hist.Cat("channel", "channel"), hist.Cat("systematic", "Systematic Uncertainty"),hist.Cat("appl", "AR/SR"), hist.Bin("ljptsum", "S$_{T}$ (GeV)", 11, 0, 1100)),
+            ##"o0pt"    : HistEFT("Events", wc_names_lst, hist.Cat("sample", "sample"), hist.Cat("channel", "channel"), hist.Cat("systematic", "Systematic Uncertainty"),hist.Cat("appl", "AR/SR"), hist.Bin("o0pt",    "Leading l or b jet $p_{T}$ (GeV)", 10, 0, 500b )),
+            ##"bl0pt"   : HistEFT("Events", wc_names_lst, hist.Cat("sample", "sample"), hist.Cat("channel", "channel"), hist.Cat("systematic", "Systematic Uncertainty"),hist.Cat("appl", "AR/SR"), hist.Bin("bl0pt",   "Leading (b+l) $p_{T}$ (GeV)", 10, 0, 500)),
+            ##"lj0pt"   : HistEFT("Events", wc_names_lst, hist.Cat("sample", "sample"), hist.Cat("channel", "channel"), hist.Cat("systematic", "Systematic Uncertainty"),hist.Cat("appl", "AR/SR"), hist.Bin("lj0pt",   "Leading pt of pair from l+j collection (GeV)", 12, 0, 600)),
             "taupt"   : HistEFT("Events", wc_names_lst, hist.Cat("sample", "sample"), hist.Cat("channel", "channel"), hist.Cat("systematic", "Systematic Uncertainty"),hist.Cat("appl", "AR/SR"), hist.Bin("taupt",   "Leading pt of tau (GeV)", 20, 0, 200)),
-            "nVLtau"  :  HistEFT("Events", wc_names_lst, hist.Cat("sample", "sample"), hist.Cat("channel", "channel"), hist.Cat("systematic", "Systematic Uncertainty"),hist.Cat("appl", "AR/SR"), hist.Bin("nVLtau",  "Number of VL WP taus", 3, 0, 3)),
-            "nLtau"   :  HistEFT("Events", wc_names_lst, hist.Cat("sample", "sample"), hist.Cat("channel", "channel"), hist.Cat("systematic", "Systematic Uncertainty"),hist.Cat("appl", "AR/SR"), hist.Bin("nLtau",  "Number of L WP taus", 3, 0, 3)),
-            "nMtau"   :  HistEFT("Events", wc_names_lst, hist.Cat("sample", "sample"), hist.Cat("channel", "channel"), hist.Cat("systematic", "Systematic Uncertainty"),hist.Cat("appl", "AR/SR"), hist.Bin("nMtau",  "Number of M WP taus", 3, 0, 3)),
-            "nTtau"   :  HistEFT("Events", wc_names_lst, hist.Cat("sample", "sample"), hist.Cat("channel", "channel"), hist.Cat("systematic", "Systematic Uncertainty"),hist.Cat("appl", "AR/SR"), hist.Bin("nTtau",  "Number of T WP taus", 3, 0, 3)),
-            "nVTtau"  :  HistEFT("Events", wc_names_lst, hist.Cat("sample", "sample"), hist.Cat("channel", "channel"), hist.Cat("systematic", "Systematic Uncertainty"),hist.Cat("appl", "AR/SR"), hist.Bin("nVTtau",  "Number of VT WP taus", 3, 0, 3)),
+            ##"nVLtau"  :  HistEFT("Events", wc_names_lst, hist.Cat("sample", "sample"), hist.Cat("channel", "channel"), hist.Cat("systematic", "Systematic Uncertainty"),hist.Cat("appl", "AR/SR"), hist.Bin("nVLtau",  "Number of VL WP taus", 3, 0, 3)),
+            ##"nLtau"   :  HistEFT("Events", wc_names_lst, hist.Cat("sample", "sample"), hist.Cat("channel", "channel"), hist.Cat("systematic", "Systematic Uncertainty"),hist.Cat("appl", "AR/SR"), hist.Bin("nLtau",  "Number of L WP taus", 3, 0, 3)),
+            ##"nMtau"   :  HistEFT("Events", wc_names_lst, hist.Cat("sample", "sample"), hist.Cat("channel", "channel"), hist.Cat("systematic", "Systematic Uncertainty"),hist.Cat("appl", "AR/SR"), hist.Bin("nMtau",  "Number of M WP taus", 3, 0, 3)),
+            ##"nTtau"   :  HistEFT("Events", wc_names_lst, hist.Cat("sample", "sample"), hist.Cat("channel", "channel"), hist.Cat("systematic", "Systematic Uncertainty"),hist.Cat("appl", "AR/SR"), hist.Bin("nTtau",  "Number of T WP taus", 3, 0, 3)),
+            ##"nVTtau"  :  HistEFT("Events", wc_names_lst, hist.Cat("sample", "sample"), hist.Cat("channel", "channel"), hist.Cat("systematic", "Systematic Uncertainty"),hist.Cat("appl", "AR/SR"), hist.Bin("nVTtau",  "Number of VT WP taus", 3, 0, 3)),
         })
 
         # Set the list of hists to fill
@@ -185,11 +588,87 @@ class AnalysisProcessor(processor.ProcessorABC):
         
         # Initialize objects
         met  = events.MET
+        puppimet  = events.PuppiMET
         e    = events.Electron
         mu   = events.Muon
         tau  = events.Tau
         jets = events.Jet
+        genparticles = events.GenPart
 
+
+
+        ##GenLeptonTauPairs(genparticles, e, mu, tau)
+
+        # Assuming you have already loaded the genparticles, muons, and electrons                                                         
+        leptons = ak.concatenate([mu, e], axis=1)
+
+        ##print("leptons[leptons.isTauPaired]", leptons[leptons.isTauPaired], ak.type(leptons[leptons.isTauPaired]), ak.sum(ak.any(leptons.isTauPaired, axis=1)))
+        ##print("tau", tau, ak.type(tau))
+        ##print("tau.isLeptonPaired\t", ak.to_list(tau.isLeptonPaired), ak.type(tau.isLeptonPaired), ak.sum(ak.any((tau.isLeptonPaired), axis=1)))
+        ##print("tau.genPartFlav == 5\t", ak.to_list(tau.genPartFlav == 5), ak.type(tau.genPartFlav == 5), ak.sum(ak.any((tau.genPartFlav == 5), axis=1)))
+        ##print("tau.isLeptonPaired & tau.genPartFlav == 5", ak.to_list(tau.isLeptonPaired & tau.genPartFlav == 5), ak.type(tau.isLeptonPaired & tau.genPartFlav == 5), ak.sum(ak.any((tau.isLeptonPaired & tau.genPartFlav == 5), axis=1)))
+        ##print("tau[tau.genPartFlav == 5]", tau[tau.genPartFlav == 5], ak.type(tau[tau.genPartFlav == 5]))
+        ##print("tau[tau.isLeptonPaired]", tau[tau.isLeptonPaired], ak.type(tau[tau.isLeptonPaired]))
+
+        ##mvis_gentaulep = (genleptons + gentaus).mass
+        ##mvis_gentaulep_nonone = mvis_gentaulep[~ak.is_none(mvis_gentaulep)]
+        ##print("non null mvis_gentaulep", mvis_gentaulep_nonone, ak.type(mvis_gentaulep_nonone)) #, ak.num(mvis_gentaulep_nonone)) #ak.any(ak.is_none(mvis_gentaulep)), ak.any(~ak.is_none(mvis_gentaulep)), ak.is_none(mvis_gentaulep), ~ak.is_none(mvis_gentaulep))
+        
+        genmatch_lep, genmatch_tau, mvis_gentaulep = get_closest_taus_for_all_events(genparticles, leptons, tau)
+        
+        
+        # Open a file to write the information
+        filename = f"particles_info.txt"
+        with open(filename, "w") as file:
+
+            for i, event in enumerate(genparticles):
+                file.write(f"Event {i}:\n")
+
+                # Loop over electrons in the current event
+                file.write("Electrons:\n")
+                for j, electron in enumerate(e[i]):
+                    file.write(f"Electron {j}: genPartIdx: {electron.genPartIdx}, genPartFlav: {electron.genPartFlav}, charge: {electron.charge}, pt: {electron.pt}, eta: {electron.eta}, phi: {electron.phi}, mass: {electron.mass}, dxy: {electron.dxy}, dz: {electron.dz}\n")
+                file.write("-" * 40 + "\n")
+
+                # Loop over muons in the current event
+                file.write("Muons:\n")
+                for j, muon in enumerate(mu[i]):
+                    file.write(f"Muon {j}: genPartIdx: {muon.genPartIdx}, genPartFlav: {muon.genPartFlav}, charge: {muon.charge}, pt: {muon.pt}, eta: {muon.eta}, phi: {muon.phi}, mass: {muon.mass}, dxy: {muon.dxy}, dz: {muon.dz}\n")
+                file.write("-" * 40 + "\n")
+
+                # Loop over taus in the current event
+                file.write("Taus:\n")
+                for j, tau_particle in enumerate(tau[i]):
+                    file.write(f"Tau {j}: genPartIdx: {tau_particle.genPartIdx}, genPartFlav: {tau_particle.genPartFlav}, charge: {tau_particle.charge}, pt: {tau_particle.pt}, eta: {tau_particle.eta}, phi: {tau_particle.phi}, mass: {tau_particle.mass}, idDeepTau2017v2p1VSjet: {tau_particle.idDeepTau2017v2p1VSjet}, dxy: {tau_particle.dxy}, dz: {tau_particle.dz}, DM: {tau_particle.decayMode}\n")
+                file.write("-" * 40 + "\n")
+
+                # Write information about genparticles
+                file.write("GenParticles:\n")
+                for genparticle_idx, genparticle in enumerate(genparticles[i]):
+                    if True:#genparticle.status in [1, 2]:
+                        file.write(f"GenParticle {genparticle_idx}: pdgId: {genparticle.pdgId}, genPartIdxMother: {genparticle.genPartIdxMother}, status: {genparticle.status}, statusFlags: {genparticle.statusFlags}, pt: {genparticle.pt}, eta: {genparticle.eta}, phi: {genparticle.phi}, mass: {genparticle.mass}\n")
+                file.write("-" * 40 + "\n")
+
+        
+                # Write information about gen_taulep_pairs
+                file.write("Lepton-Tau Pairs:\n")
+                if genmatch_lep[i] is None or genmatch_tau[i] is None:
+                    file.write("No gen-level matched pair")
+                    continue
+
+                for j, lepton in enumerate(genmatch_lep[i]):
+                    ttau = genmatch_tau[i][j]
+                    if lepton is not None and ttau is not None:
+                        file.write(f"Pair {j}:\n")
+                        file.write(f"Lepton: genPartIdx: {lepton.genPartIdx}, genPartFlav: {lepton.genPartFlav}, charge: {lepton.charge}, pt: {lepton.pt}, eta: {lepton.eta}, phi: {lepton.phi}, mass: {lepton.mass}, dxy: {lepton.dxy}, dz: {lepton.dz}\n")
+                        file.write(f"Tau: genPartIdx: {ttau.genPartIdx}, genPartFlav: {ttau.genPartFlav}, charge: {ttau.charge}, pt: {ttau.pt}, eta: {ttau.eta}, phi: {ttau.phi}, mass: {ttau.mass}, idDeepTau2017v2p1VSjet: {ttau.idDeepTau2017v2p1VSjet}, dxy: {ttau.dxy}, dz: {ttau.dz}\n")
+
+                    else:
+                        file.write(f"Pair {j}: No valid Lepton-Tau pair found for this event.\n")
+                    file.write("-" * 40 + "\n")
+
+                file.write("=" * 80 + "\n")
+        
         # An array of lenght events that is just 1 for each event
         # Probably there's a better way to do this, but we use this method elsewhere so I guess why not..
         events.nom = ak.ones_like(events.MET.pt)
@@ -230,9 +709,9 @@ class AnalysisProcessor(processor.ProcessorABC):
         ################### Electron selection ####################
 
         e["isPres"] = isPresElec(e.pt, e.eta, e.dxy, e.dz, e.miniPFRelIso_all, e.sip3d, getattr(e,"mvaFall17V2noIso_WPL"))
-        e["isLooseE"] = isLooseElec(e.miniPFRelIso_all,e.sip3d,e.lostHits)
-        e["isFO"] = isFOElec(e.pt, e.conept, e.btagDeepFlavB, e.idEmu, e.convVeto, e.lostHits, e.mvaTTHUL, e.jetRelIso, e.mvaFall17V2noIso_WP90, year)
-        e["isTightLep"] = tightSelElec(e.isFO, e.mvaTTHUL)      
+        e["isLooseE"] = isLooseElec(e.miniPFRelIso_all,e.sip3d,e.lostHits) #loose selection
+        e["isFO"] = isFOElec(e.pt, e.conept, e.btagDeepFlavB, e.idEmu, e.convVeto, e.lostHits, e.mvaTTHUL, e.jetRelIso, e.mvaFall17V2noIso_WP90, year) # fakeable object
+        e["isTightLep"] = tightSelElec(e.isFO, e.mvaTTHUL)      # tight selection
 
         ################### Muon selection ####################
 
@@ -246,13 +725,34 @@ class AnalysisProcessor(processor.ProcessorABC):
 
         m_loose = mu[mu.isPres & mu.isLooseM]
         e_loose = e[e.isPres & e.isLooseE]
-        l_loose = ak.with_name(ak.concatenate([e_loose, m_loose], axis=1), 'PtEtaPhiMCandidate')
+        l_loose = ak.with_name(ak.concatenate([e_loose, m_loose], axis=1), 'PtEtaPhiMCandidate') #gives array with lorentz vector structure
 
         ################### Tau selection ####################
 
-        tau["pt"]      = ApplyTES(year, tau, isData)
+        # Compute pair invariant masses, for all flavors all signes
+        llpairs = ak.combinations(l_loose, 2, fields=["l0","l1"])
+        events["minMllAFAS"] = ak.min( (llpairs.l0+llpairs.l1).mass, axis=-1)
+
+        # Build FO collection
+        m_fo = mu[mu.isPres & mu.isLooseM & mu.isFO]
+        e_fo = e[e.isPres & e.isLooseE & e.isFO]
+
+        # Attach the lepton SFs to the electron and muons collections
+        AttachElectronSF(e_fo,year=year)
+        AttachMuonSF(m_fo,year=year)
+
+        # Attach per lepton fake rates
+        AttachPerLeptonFR(e_fo, flavor = "Elec", year=year)
+        AttachPerLeptonFR(m_fo, flavor = "Muon", year=year)
+        m_fo['convVeto'] = ak.ones_like(m_fo.charge); 
+        m_fo['lostHits'] = ak.zeros_like(m_fo.charge); 
+        l_fo = ak.pad_none(ak.with_name(ak.concatenate([e_fo, m_fo], axis=1), 'PtEtaPhiMCandidate'), 3)
+        l_fo_conept_sorted = l_fo[ak.argsort(l_fo.conept, axis=-1,ascending=False)]
+
+        tau["pt"], tau["mass"]      = ApplyTES(year, tau, isData)
         tau["isPres"]  = isPresTau(tau.pt, tau.eta, tau.dxy, tau.dz, tau.idDeepTau2017v2p1VSjet, minpt=20)
-        tau["isClean"] = isClean(tau, l_loose, drmin=0.3)
+        tau["isClean"] = isClean(tau, l_fo, drmin=0.3)
+        #tau["isClean"] = isClean(tau, l_loose, drmin=0.3)
         tau["isGood"]  =  tau["isClean"] & tau["isPres"]
         tau = tau[tau.isGood] # use these to clean jets
         tau["isVLoose"]  = isVLooseTau(tau.idDeepTau2017v2p1VSjet) # use these to veto
@@ -270,29 +770,176 @@ class AnalysisProcessor(processor.ProcessorABC):
         nTtau  = ak.num(tau[tau["isTight"]>0] )
         nVTtau = ak.num(tau[tau["isVTight"]>0])
                         
-        # Compute pair invariant masses, for all flavors all signes
-        llpairs = ak.combinations(l_loose, 2, fields=["l0","l1"])
-        events["minMllAFAS"] = ak.min( (llpairs.l0+llpairs.l1).mass, axis=-1)
-
-        # Build FO collection
-        m_fo = mu[mu.isPres & mu.isLooseM & mu.isFO]
-        e_fo = e[e.isPres & e.isLooseE & e.isFO]
-
-        # Attach the lepton SFs to the electron and muons collections
-        AttachElectronSF(e_fo,year=year)
-        AttachMuonSF(m_fo,year=year)
         if not isData:
             AttachTauSF(events, tau, year=year)
         tau_padded = ak.pad_none(tau, 1)
         tau0 = tau_padded[:,0]
 
-        # Attach per lepton fake rates
-        AttachPerLeptonFR(e_fo, flavor = "Elec", year=year)
-        AttachPerLeptonFR(m_fo, flavor = "Muon", year=year)
-        m_fo['convVeto'] = ak.ones_like(m_fo.charge); 
-        m_fo['lostHits'] = ak.zeros_like(m_fo.charge); 
-        l_fo = ak.with_name(ak.concatenate([e_fo, m_fo], axis=1), 'PtEtaPhiMCandidate')
-        l_fo_conept_sorted = l_fo[ak.argsort(l_fo.conept, axis=-1,ascending=False)]
+        l_fo_conept_sorted_padded = ak.pad_none(l_fo_conept_sorted, 3)
+        leading_lepton = l_fo_conept_sorted[:, 0]
+        subleading_lepton = l_fo_conept_sorted[:, 1]
+
+        #print("l_fo_conept_sorted.pt", ak.to_list(l_fo_conept_sorted["pt"]), ak.type(l_fo_conept_sorted["pt"]))
+        # Visible mass for any lepton-tau pair
+        leading_tau = tau_padded[:, 0]
+
+        #print("leading_tau.pt", ak.to_list(leading_tau["pt"]), ak.type(leading_tau["pt"]))
+        #print("genmatch_tau.pt", ak.to_list(genmatch_tau["pt"]), ak.type(genmatch_tau["pt"]))
+        #print("leading_lepton.pt", ak.to_list(leading_lepton["pt"]), ak.type(leading_lepton["pt"]))
+        #print("subleading_lepton.pt", ak.to_list(subleading_lepton["pt"]), ak.type(subleading_lepton["pt"]))
+        #print("genmatch_lep.pt", ak.to_list(genmatch_lep["pt"]), ak.type(genmatch_lep["pt"]))
+
+
+        gen_leadtau_mask = abs(leading_tau["pt"] - genmatch_tau["pt"]) < 1
+        gen_leadlep_mask = abs(leading_lepton["pt"] - genmatch_lep["pt"]) < 1
+        gen_subleadlep_mask = abs(subleading_lepton["pt"] - genmatch_lep["pt"]) < 1
+        #print("before gen_subleadlep_mask", ak.to_list(gen_subleadlep_mask), ak.type(gen_subleadlep_mask))
+        gen_leadtau_mask = ak.pad_none(gen_leadtau_mask, 1)
+        gen_leadlep_mask = ak.pad_none(gen_leadlep_mask, 1)
+        gen_subleadlep_mask = ak.pad_none(gen_subleadlep_mask, 1)
+        #print("after gen_leadlep_mask", ak.to_list(gen_leadlep_mask), ak.type(gen_leadlep_mask))
+        #print("after gen_subleadlep_mask", ak.to_list(gen_subleadlep_mask), ak.type(gen_subleadlep_mask))
+
+
+        gen_lep0tau_mask = gen_leadtau_mask & gen_leadlep_mask
+        gen_lep1tau_mask = gen_leadtau_mask & gen_subleadlep_mask
+        
+        conv_mask_l0t = ak.num(gen_lep0tau_mask) == 0
+        conv_mask_l1t = ak.num(gen_lep1tau_mask) == 0
+        gen_lep0tau_mask = ak.where(conv_mask_l0t, [[False]], gen_lep0tau_mask)
+        gen_lep1tau_mask = ak.where(conv_mask_l1t, [[False]], gen_lep1tau_mask)
+        gen_lep0tau_mask = ak.where(ak.is_none(gen_lep0tau_mask), [[False]], gen_lep0tau_mask)
+        gen_lep1tau_mask = ak.where(ak.is_none(gen_lep1tau_mask), [[False]], gen_lep1tau_mask)
+        gen_lep0tau_mask = ak.flatten(gen_lep0tau_mask)
+        gen_lep1tau_mask = ak.flatten(gen_lep1tau_mask)
+        gen_lep0tau_mask = ak.fill_none(gen_lep0tau_mask, False)
+        gen_lep1tau_mask = ak.fill_none(gen_lep1tau_mask, False)
+        nogen_lep0tau_mask = ~gen_lep0tau_mask
+        nogen_lep1tau_mask = ~gen_lep1tau_mask
+
+
+        mvis_taulep = (leading_tau + l_fo_conept_sorted).mass
+        mvis_taulep0 = mvis_taulep[:,0]
+        mvis_taulep1 = mvis_taulep[:,1]
+
+
+        mvis_gentaulep0 = ak.where(gen_lep0tau_mask, mvis_taulep0, -100)
+        mvis_nogentaulep0 = ak.where(nogen_lep0tau_mask, mvis_taulep0, -100)
+        mvis_gentaulep1 = ak.where(gen_lep1tau_mask, mvis_taulep1, -100)
+        mvis_nogentaulep1 = ak.where(nogen_lep1tau_mask, mvis_taulep1, -100)
+        print("mvis_taulep", ak.to_list(mvis_taulep), ak.type(mvis_taulep))
+        print("mvis_taulep0", ak.to_list(mvis_taulep[:,0]), ak.type(mvis_taulep[:,0]))
+        #print("flat gen_lep0tau_mask", ak.to_list(gen_lep0tau_mask), ak.type(gen_lep0tau_mask))
+        #print("flat ~gen_lep0tau_mask", ak.to_list(nogen_lep0tau_mask), ak.type(nogen_lep0tau_mask))                                                                                                                                                                             
+        #print("mvis_gentaulep", ak.to_list(mvis_gentaulep), ak.type(mvis_gentaulep))
+        #print("mvis_taulep0", ak.to_list(mvis_taulep0), ak.type(mvis_taulep0))
+        #print("gen_lep0tau_mask", ak.to_list(gen_lep0tau_mask), ak.type(gen_lep0tau_mask))
+        #print("mvis_gentaulep0", ak.to_list(mvis_gentaulep0), ak.type(mvis_gentaulep0))
+        print("mvis_taulep1", ak.to_list(mvis_taulep[:,1]), ak.type(mvis_taulep[:,1]))
+        print("\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n")
+        #print("gen_lep1tau_mask", ak.to_list(gen_lep1tau_mask), ak.type(gen_lep1tau_mask))
+        #print("mvis_gentaulep1", ak.to_list(mvis_gentaulep1), ak.type(mvis_gentaulep1))
+        #print("flat mvis_nogentaulep0", ak.to_list(mvis_nogentaulep0), ak.type(mvis_nogentaulep0))
+
+
+        charge_taulep = leading_tau.charge + l_fo_conept_sorted.charge
+
+        leading_tau_jagged = ak.singletons(leading_tau)
+        
+        closest_taulep = leading_tau_jagged.nearest(l_fo_conept_sorted_padded)
+        closest_taulep = ak.pad_none(closest_taulep, 1)
+        
+        mvis_taulep_dR0 = (leading_tau + closest_taulep).mass
+        mvis_taulep_dR0 = ak.where(ak.is_none(mvis_taulep_dR0), [[None]], mvis_taulep_dR0)
+        mvis_taulep_dR0 = ak.flatten(mvis_taulep_dR0)
+
+        genmatch_lep = ak.pad_none(genmatch_lep, 1)
+        gen_closlep_mask = abs(closest_taulep["pt"] - genmatch_lep["pt"]) < 1.
+        
+        gen_lepctau_mask = gen_leadtau_mask & gen_closlep_mask
+        conv_mask_lct = ak.num(gen_lepctau_mask) == 0
+        gen_lepctau_mask = ak.where(conv_mask_lct, [[False]], gen_lepctau_mask)
+        gen_lepctau_mask = ak.where(ak.is_none(gen_lepctau_mask), [[False]], gen_lepctau_mask)
+        gen_lepctau_mask = ak.flatten(gen_lepctau_mask)
+        gen_lepctau_mask = ak.fill_none(gen_lepctau_mask, False)
+        nogen_lepctau_mask = ~gen_lepctau_mask
+
+        mvis_gentaulepc = ak.where(gen_lepctau_mask, mvis_taulep_dR0, -100)
+        mvis_nogentaulepc = ak.where(nogen_lepctau_mask, mvis_taulep_dR0, -100)
+        #print("closest_taulep.pt", ak.to_list(closest_taulep["pt"]), ak.type(closest_taulep["pt"]))
+        #print("mvis_taulep_dR0", ak.to_list(mvis_taulep_dR0), ak.type(mvis_taulep_dR0))
+        #print("check for gen_closlep_mask", ak.to_list(closest_taulep["pt"] - genmatch_lep["pt"]))
+        #print("gen_closlep_mask", ak.to_list(gen_closlep_mask), ak.type(gen_closlep_mask))
+
+        #print("gen_lepctau_mask", ak.to_list(gen_lepctau_mask), ak.type(gen_lepctau_mask))
+        #print("mvis_gentaulepc", ak.to_list(mvis_gentaulepc), ak.type(mvis_gentaulepc))
+        #print("mvis_nogentaulepc", ak.to_list(mvis_gentaulepc), ak.type(mvis_nogentaulepc))
+        #print("\n\n\n\n\n\n\n\n\n\n\n")        
+
+        taulepOS_mask = ak.any(charge_taulep == 0, axis=1) #(charge_taulep == 0)
+
+        M1T_taulep0 = calculate_M1T(leading_tau, l_fo_conept_sorted[:, 0], met)
+        M1T_taulep1 = calculate_M1T(leading_tau, l_fo_conept_sorted[:, 1], met)
+        M1T_taulep_dR0 = calculate_M1T(leading_tau, closest_taulep, met)
+
+        puppiM1T_taulep0 = calculate_M1T(leading_tau, l_fo_conept_sorted[:, 0], puppimet)
+        puppiM1T_taulep1 = calculate_M1T(leading_tau, l_fo_conept_sorted[:, 1], puppimet)
+        puppiM1T_taulep_dR0 = calculate_M1T(leading_tau, closest_taulep, puppimet)
+
+        Mo1_taulep0 = calculate_Mo1(leading_tau, l_fo_conept_sorted[:, 0], met)
+        Mo1_taulep1 = calculate_Mo1(leading_tau, l_fo_conept_sorted[:, 1], met)
+        Mo1_taulep_dR0 = calculate_Mo1(leading_tau, closest_taulep, met)
+
+        puppiMo1_taulep0 = calculate_Mo1(leading_tau, l_fo_conept_sorted[:, 0], puppimet)
+        puppiMo1_taulep1 = calculate_Mo1(leading_tau, l_fo_conept_sorted[:, 1], puppimet)
+        puppiMo1_taulep_dR0 = calculate_Mo1(leading_tau, closest_taulep, puppimet)
+
+        leading_tau_genPartIdx = leading_tau.genPartIdx
+        leading_lepton_genPartIdx = l_fo_conept_sorted[:, 0].genPartIdx
+
+        '''        
+        # Dictionary to translate pdgId to particle name
+        pdgId_dict = {
+            11: "Electron",
+            -11: "Positron",
+            13: "Muon",
+            -13: "Anti-muon",
+            15: "Tau",
+            -15: "Anti-tau"
+        }
+
+        # Open the file for writing
+        with open(f'leading_tau_and_leptons_info_{random_number}.txt', 'w') as file:
+    
+            # Loop over events
+            for i, event in enumerate(events):
+                file.write(f"Event {i}:\n")
+                # Information for leading_tau
+                if leading_tau is not None:
+                    file.write("=== leading_tau ===\n")
+                    file.write(f"Charge: {leading_tau.charge[i]}\n")
+                    file.write(f"PT: {leading_tau.pt[i]}, Eta: {leading_tau.eta[i]}, Phi: {leading_tau.phi[i]}, Mass: {leading_tau.mass[i]}\n")
+                    file.write(f"idDeepTau2017v2p1VSjet: {leading_tau.idDeepTau2017v2p1VSjet[i]}\n")
+                    file.write(f"genPartIdx: {leading_tau.genPartIdx[i]}, genPartFlav: {leading_tau.genPartFlav[i]}\n")
+                    file.write("\n")
+                else:
+                    file.write("leading_tau object is None for this event.\n")
+        
+                # Information for leptons in l_fo_conept_sorted
+                for j, lepton in enumerate(l_fo_conept_sorted[i]):
+                    if lepton is not None:
+                        file.write(f"=== lepton {j} ===\n")
+                        file.write(f"Flavor: {pdgId_dict.get(lepton.pdgId, 'Unknown')}\n")
+                        file.write(f"Charge: {lepton.charge}\n")
+                        file.write(f"PT: {lepton.pt}, Eta: {lepton.eta}, Phi: {lepton.phi}, Mass: {lepton.mass}\n")
+                        file.write(f"genPartIdx: {lepton.genPartIdx}, genPartFlav: {lepton.genPartFlav}\n")
+                        file.write("\n")
+                    else:
+                        file.write("Lepton object is None for this event.\n")
+                if i > 49:
+                    break
+                file.write("=====================================\n\n")
+        '''
 
         ######### Systematics ###########
 
@@ -430,7 +1077,7 @@ class AnalysisProcessor(processor.ProcessorABC):
             addLepCatMasks(events)
 
             # Convenient to have l0, l1, l2 on hand
-            l_fo_conept_sorted_padded = ak.pad_none(l_fo_conept_sorted, 3)
+
             l0 = l_fo_conept_sorted_padded[:,0]
             l1 = l_fo_conept_sorted_padded[:,1]
             l2 = l_fo_conept_sorted_padded[:,2]
@@ -577,28 +1224,31 @@ class AnalysisProcessor(processor.ProcessorABC):
             #selections.add("1l_2tau", (events.is1l & bmask_atleast1med_atleast2loose & pass_trg & bmask_atmost2med & tau_2lss_2tau_mask))
 
             # 2lss selection (drained of 4 top)
-            selections.add("2lss_p", (events.is2l & chargel0_p & bmask_atleast1med_atleast2loose & pass_trg & bmask_atmost2med))  # Note: The ss requirement has NOT yet been made at this point! We take care of it later with the appl axis
-            selections.add("2lss_m", (events.is2l & chargel0_m & bmask_atleast1med_atleast2loose & pass_trg & bmask_atmost2med))  # Note: The ss requirement has NOT yet been made at this point! We take care of it later with the appl axis
-            selections.add("2lss_p_1tau_VL", (events.is2l & chargel0_p & bmask_atleast1med_atleast2loose & pass_trg & bmask_atmost2med & tau_VL_mask))
-            selections.add("2lss_m_1tau_VL", (events.is2l & chargel0_m & bmask_atleast1med_atleast2loose & pass_trg & bmask_atmost2med & tau_VL_mask))
-            selections.add("2lss_p_1tau_VT", (events.is2l & chargel0_p & bmask_atleast1med_atleast2loose & pass_trg & bmask_atmost2med & tau_VT_mask))
-            selections.add("2lss_m_1tau_VT", (events.is2l & chargel0_m & bmask_atleast1med_atleast2loose & pass_trg & bmask_atmost2med & tau_VT_mask))
+            #selections.add("2lss_p", (events.is2l & chargel0_p & bmask_atleast1med_atleast2loose & pass_trg & bmask_atmost2med))  # Note: The ss requirement has NOT yet been made at this point! We take care of it later with the appl axis
+            #selections.add("2lss_m", (events.is2l & chargel0_m & bmask_atleast1med_atleast2loose & pass_trg & bmask_atmost2med))  # Note: The ss requirement has NOT yet been made at this point! We take care of it later with the appl axis
+            ##selections.add("2lss_p_1tau_VL", (events.is2l & chargel0_p & bmask_atleast1med_atleast2loose & pass_trg & bmask_atmost2med & tau_VL_mask))
+            ##selections.add("2lss_m_1tau_VL", (events.is2l & chargel0_m & bmask_atleast1med_atleast2loose & pass_trg & bmask_atmost2med & tau_VL_mask))
+            ##selections.add("2lss_p_1tau_VT", (events.is2l & chargel0_p & bmask_atleast1med_atleast2loose & pass_trg & bmask_atmost2med & tau_VT_mask))
+            ##selections.add("2lss_m_1tau_VT", (events.is2l & chargel0_m & bmask_atleast1med_atleast2loose & pass_trg & bmask_atmost2med & tau_VT_mask))
+            selections.add("2lss_1tau_VL", (events.is2l & pass_trg & tau_VL_mask & charge2l_1))
+            selections.add("2lss_1tau_VL_OStaul", (events.is2l & pass_trg & tau_VL_mask & charge2l_1 & taulepOS_mask))
+            selections.add("2lss_1tau_VL_SStaul", (events.is2l & pass_trg & tau_VL_mask & charge2l_1 & ~taulepOS_mask))
             selections.add("2los_onZ_1tau", (events.is2l & charge2l_0 & sfosz_2l_mask & bmask_atleast1med_atleast2loose & pass_trg & tau_2los_1tau_mask))
-            selections.add("2los_offZ_1tau", (events.is2l & charge2l_0 & ~sfosz_2l_mask & bmask_atleast1med_atleast2loose & pass_trg & tau_2los_1tau_mask))
-            selections.add("2los_2tau", (events.is2l & charge2l_0 & bmask_atleast1med_atleast2loose & pass_trg & tau_2los_2tau_mask))
-            selections.add("2lss_2tau", (events.is2l & bmask_atleast1med_atleast2loose & pass_trg & tau_2lss_2tau_mask))
+            #selections.add("2los_offZ_1tau", (events.is2l & charge2l_0 & ~sfosz_2l_mask & bmask_atleast1med_atleast2loose & pass_trg & tau_2los_1tau_mask))
+            #selections.add("2los_2tau", (events.is2l & charge2l_0 & bmask_atleast1med_atleast2loose & pass_trg & tau_2los_2tau_mask))
+            #selections.add("2lss_2tau", (events.is2l & bmask_atleast1med_atleast2loose & pass_trg & tau_2lss_2tau_mask))
 
             # 2lss selection (enriched in 4 top)
-            selections.add("2lss_4t_p", (events.is2l & chargel0_p & bmask_atleast1med_atleast2loose & pass_trg & bmask_atleast3med))  # Note: The ss requirement has NOT yet been made at this point! We take care of it later with the appl axis
-            selections.add("2lss_4t_m", (events.is2l & chargel0_m & bmask_atleast1med_atleast2loose & pass_trg & bmask_atleast3med))  # Note: The ss requirement has NOT yet been made at this point! We take care of it later with the appl axis
+            ##selections.add("2lss_4t_p", (events.is2l & chargel0_p & bmask_atleast1med_atleast2loose & pass_trg & bmask_atleast3med))  # Note: The ss requirement has NOT yet been made at this point! We take care of it later with the appl axis
+            ##selections.add("2lss_4t_m", (events.is2l & chargel0_m & bmask_atleast1med_atleast2loose & pass_trg & bmask_atleast3med))  # Note: The ss requirement has NOT yet been made at this point! We take care of it later with the appl axis
 		
             # 2lss selection for CR
-            selections.add("2lss_CR", (events.is2l & (chargel0_p | chargel0_m) & bmask_exactly1med & pass_trg)) # Note: The ss requirement has NOT yet been made at this point! We take care of it later with the appl axis
-            selections.add("2lss_CRflip", (events.is2l_nozeeveto & events.is_ee & sfasz_2l_mask & pass_trg)) # Note: The ss requirement has NOT yet been made at this point! We take care of it later with the appl axis, also note explicitly include the ee requirement here, so we don't have to rely on running with _split_by_lepton_flavor turned on to enforce this requirement
+            ##selections.add("2lss_CR", (events.is2l & (chargel0_p | chargel0_m) & bmask_exactly1med & pass_trg)) # Note: The ss requirement has NOT yet been made at this point! We take care of it later with the appl axis
+            ##selections.add("2lss_CRflip", (events.is2l_nozeeveto & events.is_ee & sfasz_2l_mask & pass_trg)) # Note: The ss requirement has NOT yet been made at this point! We take care of it later with the appl axis, also note explicitly include the ee requirement here, so we don't have to rely on running with _split_by_lepton_flavor turned on to enforce this requirement
 
             # 2los selection
-            selections.add("2los_CRtt", (events.is2l_nozeeveto & charge2l_0 & events.is_em & bmask_exactly2med & pass_trg)) # Explicitly add the em requirement here, so we don't have to rely on running with _split_by_lepton_flavor turned on to enforce this requirement
-            selections.add("2los_CRZ", (events.is2l_nozeeveto & charge2l_0 & sfosz_2l_mask & bmask_exactly0med & pass_trg))
+            ##selections.add("2los_CRtt", (events.is2l_nozeeveto & charge2l_0 & events.is_em & bmask_exactly2med & pass_trg)) # Explicitly add the em requirement here, so we don't have to rely on running with _split_by_lepton_flavor turned on to enforce this requirement
+            ##selections.add("2los_CRZ", (events.is2l_nozeeveto & charge2l_0 & sfosz_2l_mask & bmask_exactly0med & pass_trg))
             #selections.add("2los_CRZ_VLtau", (events.is2l_nozeeveto & charge2l_0 & sfosz_2l_mask & bmask_exactly0med & pass_trg & tau_VL_mask))
             #selections.add("2los_CRZ_Ltau", (events.is2l_nozeeveto & charge2l_0 & sfosz_2l_mask & bmask_exactly0med & pass_trg & tau_L_mask))
             #selections.add("2los_CRZ_Mtau", (events.is2l_nozeeveto & charge2l_0 & sfosz_2l_mask & bmask_exactly0med & pass_trg & tau_M_mask))
@@ -621,6 +1271,7 @@ class AnalysisProcessor(processor.ProcessorABC):
             selections.add("3l_onZ_2b", (events.is3l & sfosz_3l_mask & bmask_atleast2med & pass_trg & tau_3l_0tau_mask))
             selections.add("3l_CR", (events.is3l & bmask_exactly0med & pass_trg))
             selections.add("3l_1tau_1b_VL", (events.is3l & bmask_exactly1med & pass_trg & tau_VL_mask))
+            selections.add("3l_1tau_VL", (events.is3l & pass_trg & tau_VL_mask))
             selections.add("3l_1tau_2b_VL", (events.is3l & bmask_exactly2med & pass_trg & tau_VL_mask))
             selections.add("3l_1tau_1b_VT", (events.is3l & bmask_exactly1med & pass_trg & tau_VT_mask))
             selections.add("3l_1tau_2b_VT", (events.is3l & bmask_exactly2med & pass_trg & tau_VT_mask))
@@ -707,6 +1358,45 @@ class AnalysisProcessor(processor.ProcessorABC):
             # Define invariant mass hists
             mll_0_1 = (l0+l1).mass # Invmass for leading two leps
 
+
+            '''
+            with open('tau_lepton_pairs.txt', 'a') as output_file:
+                # Write the header for the file
+                output_file.write("Event | Tau | Pair | mvis_taulep | Total Charge | Lepton Flavor | Lepton origin | Tau pt | Tau eta | Tau phi | Lepton pt | Lepton eta | Lepton phi\n")
+                output_file.write("-------------------------------------------------------------------------------------------------------------------------------------------------\n")
+                
+                # Loop over events
+                for event_index in range(len(tau)):
+        
+                    # Loop over each tau within the event
+                    for tau_index, tau_event in enumerate(tau[event_index]):
+            
+                        # Loop over the sorted leptons
+                        for pair_index in range(len(l_fo_conept_sorted[event_index])):
+                            lepton = l_fo_conept_sorted[event_index, pair_index]
+                
+                            # Check if either the tau or the lepton is None
+                            if tau_event is None or lepton is None:
+                                continue  # Skip this pair
+
+                            # Compute the invariant mass
+                            mvis = (tau_event + lepton).mass
+                
+                            # Compute the total charge
+                            total_charge = tau_event.charge + lepton.charge
+                
+                            # Determine the lepton flavor using pdgId
+                            if abs(lepton.pdgId) == 11:
+                                lepton_flavor = "Electron"
+                            elif abs(lepton.pdgId) == 13:
+                                lepton_flavor = "Muon"
+                            else:
+                                lepton_flavor = "Unknown"
+
+                            # Write the information to the file
+                            output_file.write(f"{event_index} | {tau_index} | {pair_index} | {mvis:.4f} | {total_charge} | {lepton_flavor} | {lepton.genPartFlav} | {tau_event.pt:.4f} | {tau_event.eta:.4f} | {tau_event.phi:.4f} | {lepton.pt:.4f} | {lepton.eta:.4f} | {lepton.phi:.4f}\n")
+            '''
+
             # ST (but "st" is too hard to search in the code, so call it ljptsum)
             ljptsum = ak.sum(l_j_collection.pt,axis=-1)
             if self._ecut_threshold is not None:
@@ -719,13 +1409,14 @@ class AnalysisProcessor(processor.ProcessorABC):
             varnames = {}
             varnames["ht"]      = ht
             varnames["met"]     = met.pt
+            varnames["puppimet"]= puppimet.pt
             varnames["ljptsum"] = ljptsum
             varnames["l0pt"]    = l0.conept
             varnames["l0eta"]   = l0.eta
             varnames["l1pt"]    = l1.conept
             varnames["l1eta"]   = l1.eta
-            varnames["j0pt"]    = ak.flatten(j0.pt)
-            varnames["j0eta"]   = ak.flatten(j0.eta)
+            #varnames["j0pt"]    = ak.flatten(j0.pt)
+            #varnames["j0eta"]   = ak.flatten(j0.eta)
             varnames["njets"]   = njets
             varnames["nbtagsl"] = nbtagsl
             varnames["invmass"] = mll_0_1
@@ -741,6 +1432,37 @@ class AnalysisProcessor(processor.ProcessorABC):
             varnames["nMtau"]   = nMtau
             varnames["nTtau"]   = nTtau
             varnames["nVTtau"]  = nVTtau
+            #print("met", ak.num(met.pt, axis=0), met.pt)
+            ##print("mvis_gentaulep", ak.num(mvis_gentaulep, axis=0), mvis_gentaulep, ak.flatten(mvis_gentaulep))
+            #print("mvis_taulep_dR0", ak.num(mvis_taulep_dR0, axis=0), mvis_taulep_dR0)
+            varnames["mvis_gentaulep"] = ak.fill_none(mvis_gentaulep, -100) #ak.flatten(mvis_gentaulep)
+            varnames["mvis_gentaulep0"] = ak.fill_none(mvis_gentaulep0, -100) #ak.flatten(mvis_gentaulep)
+            varnames["mvis_nogentaulep0"] = ak.fill_none(mvis_nogentaulep0, -100) #ak.flatten(mvis_gentaulep)
+            varnames["mvis_gentaulep1"] = ak.fill_none(mvis_gentaulep1, -100) #ak.flatten(mvis_gentaulep)
+            varnames["mvis_nogentaulep1"] = ak.fill_none(mvis_nogentaulep1, -100) #ak.flatten(mvis_gentaulep)
+            varnames["mvis_gentaulepc"] = ak.fill_none(mvis_gentaulepc, -100) #ak.flatten(mvis_gentaulep)
+            varnames["mvis_nogentaulepc"] = ak.fill_none(mvis_nogentaulepc, -100) #ak.flatten(mvis_gentaulep)
+
+            varnames["mvis_taulep0"] = mvis_taulep0
+            varnames["mvis_taulep1"] = mvis_taulep1
+            varnames["mvis_taulep_dR0"] = mvis_taulep_dR0
+
+            varnames["M1T_taulep0"] = M1T_taulep0
+            varnames["M1T_taulep1"] = M1T_taulep1
+            varnames["M1T_taulep_dR0"] = M1T_taulep_dR0
+
+            varnames["Mo1_taulep0"] = Mo1_taulep0
+            varnames["Mo1_taulep1"] = Mo1_taulep1
+            varnames["Mo1_taulep_dR0"] = Mo1_taulep_dR0
+
+
+            varnames["puppiM1T_taulep0"] = puppiM1T_taulep0
+            varnames["puppiM1T_taulep1"] = puppiM1T_taulep1
+            varnames["puppiM1T_taulep_dR0"] = puppiM1T_taulep_dR0
+
+            varnames["puppiMo1_taulep0"] = puppiMo1_taulep0
+            varnames["puppiMo1_taulep1"] = puppiMo1_taulep1
+            varnames["puppiMo1_taulep_dR0"] = puppiMo1_taulep_dR0
 
             ########## Fill the histograms ##########
 
@@ -774,90 +1496,101 @@ class AnalysisProcessor(processor.ProcessorABC):
               #    },
               #},
               "2l" : {
-                  "exactly_2j" : {
-                      "lep_chan_lst" : 
-                      ["2lss_p" , "2lss_m", "2lss_4t_p", "2lss_4t_m", "2lss_p_1tau_VL", "2lss_m_1tau_VL", "2lss_p_1tau_VT", "2lss_m_1tau_VT", "2los_onZ_1tau", "2los_offZ_1tau", "2los_2tau", "2lss_2tau"],
-                      "lep_flav_lst" : ["ee" , "em" , "mm"],
-                      "appl_lst"     : ["isSR_2lSS" , "isAR_2lSS", "isSR_2lOS"] + (["isAR_2lSS_OS"] if isData else []),
-                  },
-                  "exactly_3j" : {
-                      "lep_chan_lst" : 
-                      ["2lss_p" , "2lss_m", "2lss_4t_p", "2lss_4t_m", "2lss_p_1tau_VL", "2lss_m_1tau_VL", "2lss_p_1tau_VT", "2lss_m_1tau_VT", "2los_onZ_1tau", "2los_offZ_1tau", "2los_2tau", "2lss_2tau"],
-                      "lep_flav_lst" : ["ee" , "em" , "mm"],
-                      "appl_lst"     : ["isSR_2lSS" , "isAR_2lSS", "isSR_2lOS"] + (["isAR_2lSS_OS"] if isData else []),
-                  },
-                  "exactly_4j" : {
-                      "lep_chan_lst" : 
-                      ["2lss_p" , "2lss_m", "2lss_4t_p", "2lss_4t_m", "2lss_p_1tau_VL", "2lss_m_1tau_VL", "2lss_p_1tau_VT", "2lss_m_1tau_VT", "2los_onZ_1tau", "2los_offZ_1tau", "2los_2tau", "2lss_2tau"],
-                      "lep_flav_lst" : ["ee" , "em" , "mm"],
-                      "appl_lst"     : ["isSR_2lSS" , "isAR_2lSS", "isSR_2lOS"] + (["isAR_2lSS_OS"] if isData else []),
-                  },
-                  "exactly_5j" : {
-                      "lep_chan_lst" : 
-                      ["2lss_p" , "2lss_m", "2lss_4t_p", "2lss_4t_m", "2lss_p_1tau_VL", "2lss_m_1tau_VL", "2lss_p_1tau_VT", "2lss_m_1tau_VT", "2los_onZ_1tau", "2los_offZ_1tau", "2los_2tau", "2lss_2tau"],
-                      "lep_flav_lst" : ["ee" , "em" , "mm"],
-                      "appl_lst"     : ["isSR_2lSS" , "isAR_2lSS", "isSR_2lOS"] + (["isAR_2lSS_OS"] if isData else []),
-                  },
-                  "exactly_6j" : {
-                      "lep_chan_lst" : 
-                      ["2lss_p" , "2lss_m", "2lss_4t_p", "2lss_4t_m", "2lss_p_1tau_VL", "2lss_m_1tau_VL", "2lss_p_1tau_VT", "2lss_m_1tau_VT", "2los_onZ_1tau", "2los_offZ_1tau", "2los_2tau", "2lss_2tau"],
-                      "lep_flav_lst" : ["ee" , "em" , "mm"],
-                      "appl_lst"     : ["isSR_2lSS" , "isAR_2lSS", "isSR_2lOS"] + (["isAR_2lSS_OS"] if isData else []),
-                  },
-                  "atleast_7j" : {
-                      "lep_chan_lst" : 
-                      ["2lss_p" , "2lss_m", "2lss_4t_p", "2lss_4t_m", "2lss_p_1tau_VL", "2lss_m_1tau_VL", "2lss_p_1tau_VT", "2lss_m_1tau_VT", "2los_onZ_1tau", "2los_offZ_1tau", "2los_2tau", "2lss_2tau"],
+                  #"exactly_2j" : {
+                  #    "lep_chan_lst" :
+                  #    #['2lss_1tau_VL'],
+                  #    ["2lss_p" , "2lss_m", "2lss_4t_p", "2lss_4t_m", "2lss_p_1tau_VL", "2lss_m_1tau_VL", "2lss_p_1tau_VT", "2lss_m_1tau_VT", "2los_onZ_1tau", "2los_offZ_1tau"],#, "2los_2tau", "2lss_2tau"],
+                  #    "lep_flav_lst" : ["ee" , "em" , "mm"],
+                  #    "appl_lst"     : ["isSR_2lSS" , "isAR_2lSS", "isSR_2lOS"] + (["isAR_2lSS_OS"] if isData else []),
+                  #},
+                  #"exactly_3j" : {
+                  #    "lep_chan_lst" : 
+                  #    ["2lss_p" , "2lss_m", "2lss_4t_p", "2lss_4t_m", "2lss_p_1tau_VL", "2lss_m_1tau_VL", "2lss_p_1tau_VT", "2lss_m_1tau_VT", "2los_onZ_1tau", "2los_offZ_1tau"], #, "2los_2tau", "2lss_2tau"],
+                  #    "lep_flav_lst" : ["ee" , "em" , "mm"],
+                  #    "appl_lst"     : ["isSR_2lSS" , "isAR_2lSS", "isSR_2lOS"] + (["isAR_2lSS_OS"] if isData else []),
+                  #},
+                  #"exactly_4j" : {
+                  #    "lep_chan_lst" : 
+                  #    ["2lss_p" , "2lss_m", "2lss_4t_p", "2lss_4t_m", "2lss_p_1tau_VL", "2lss_m_1tau_VL", "2lss_p_1tau_VT", "2lss_m_1tau_VT", "2los_onZ_1tau", "2los_offZ_1tau"], #, "2los_2tau", "2lss_2tau"],
+                  #    "lep_flav_lst" : ["ee" , "em" , "mm"],
+                  #    "appl_lst"     : ["isSR_2lSS" , "isAR_2lSS", "isSR_2lOS"] + (["isAR_2lSS_OS"] if isData else []),
+                  #},
+                  #"exactly_5j" : {
+                  #    "lep_chan_lst" : 
+                  #    ["2lss_p" , "2lss_m", "2lss_4t_p", "2lss_4t_m", "2lss_p_1tau_VL", "2lss_m_1tau_VL", "2lss_p_1tau_VT", "2lss_m_1tau_VT", "2los_onZ_1tau", "2los_offZ_1tau"], #, "2los_2tau", "2lss_2tau"],
+                  #    "lep_flav_lst" : ["ee" , "em" , "mm"],
+                  #    "appl_lst"     : ["isSR_2lSS" , "isAR_2lSS", "isSR_2lOS"] + (["isAR_2lSS_OS"] if isData else []),
+                  #},
+                  #"exactly_6j" : {
+                  #    "lep_chan_lst" : 
+                  #    ["2lss_p" , "2lss_m", "2lss_4t_p", "2lss_4t_m", "2lss_p_1tau_VL", "2lss_m_1tau_VL", "2lss_p_1tau_VT", "2lss_m_1tau_VT", "2los_onZ_1tau", "2los_offZ_1tau"], #, "2los_2tau", "2lss_2tau"],
+                  #    "lep_flav_lst" : ["ee" , "em" , "mm"],
+                  #    "appl_lst"     : ["isSR_2lSS" , "isAR_2lSS", "isSR_2lOS"] + (["isAR_2lSS_OS"] if isData else []),
+                  #},
+                  #"atleast_7j" : {
+                  #    "lep_chan_lst" : 
+                  #    ["2lss_p" , "2lss_m", "2lss_4t_p", "2lss_4t_m", "2lss_p_1tau_VL", "2lss_m_1tau_VL", "2lss_p_1tau_VT", "2lss_m_1tau_VT", "2los_onZ_1tau", "2los_offZ_1tau"], #, "2los_2tau", "2lss_2tau"],
+                  #    "lep_flav_lst" : ["ee" , "em" , "mm"],
+                  #    "appl_lst"     : ["isSR_2lSS" , "isAR_2lSS", "isSR_2lOS"] + (["isAR_2lSS_OS"] if isData else []),
+                  #},
+                  "atleast_0j" : {
+                      "lep_chan_lst" : ['2lss_1tau_VL', '2lss_1tau_VL_OStaul', '2lss_1tau_VL_SStaul'],
                       "lep_flav_lst" : ["ee" , "em" , "mm"],
                       "appl_lst"     : ["isSR_2lSS" , "isAR_2lSS", "isSR_2lOS"] + (["isAR_2lSS_OS"] if isData else []),
                   },
               },
               "3l" : {
-                  "exactly_2j" : {
-                      "lep_chan_lst" : [
-                          "3l_p_offZ_1b" , "3l_m_offZ_1b" , "3l_p_offZ_2b" , "3l_m_offZ_2b" , "3l_onZ_1b" , "3l_onZ_2b", "3l_1tau_1b_VL", "3l_1tau_2b_VL", "3l_1tau_1b_VT", "3l_1tau_2b_VT"
-                      ],
-                      "lep_flav_lst" : ["eee" , "eem" , "emm", "mmm"],
-                      "appl_lst"     : ["isSR_3l", "isAR_3l"],
-                  },
-                  "exactly_3j" : {
-                      "lep_chan_lst" : [
-                          "3l_p_offZ_1b" , "3l_m_offZ_1b" , "3l_p_offZ_2b" , "3l_m_offZ_2b" , "3l_onZ_1b" , "3l_onZ_2b", "3l_1tau_1b_VL", "3l_1tau_2b_VL", "3l_1tau_1b_VT", "3l_1tau_2b_VT"
-                      ],
-                      "lep_flav_lst" : ["eee" , "eem" , "emm", "mmm"],
-                      "appl_lst"     : ["isSR_3l", "isAR_3l"],
-                  },
-                  "exactly_4j" : {
-                      "lep_chan_lst" : [
-                          "3l_p_offZ_1b" , "3l_m_offZ_1b" , "3l_p_offZ_2b" , "3l_m_offZ_2b" , "3l_onZ_1b" , "3l_onZ_2b", "3l_1tau_1b_VL", "3l_1tau_2b_VL", "3l_1tau_1b_VT", "3l_1tau_2b_VT"
-                      ],
-                      "lep_flav_lst" : ["eee" , "eem" , "emm", "mmm"],
-                      "appl_lst"     : ["isSR_3l", "isAR_3l"],
-                  },
-                  "atleast_5j" : {
-                      "lep_chan_lst" : [
-                          "3l_p_offZ_1b" , "3l_m_offZ_1b" , "3l_p_offZ_2b" , "3l_m_offZ_2b" , "3l_onZ_1b" , "3l_onZ_2b", "3l_1tau_1b_VL", "3l_1tau_2b_VL", "3l_1tau_1b_VT", "3l_1tau_2b_VT"
-                      ],
-                      "lep_flav_lst" : ["eee" , "eem" , "emm", "mmm"],
-                      "appl_lst"     : ["isSR_3l", "isAR_3l"],
-                  },
+                  #"exactly_2j" : {
+                  #    "lep_chan_lst" : [
+                  #        "3l_p_offZ_1b" , "3l_m_offZ_1b" , "3l_p_offZ_2b" , "3l_m_offZ_2b" , "3l_onZ_1b" , "3l_onZ_2b", "3l_1tau_1b_VL", "3l_1tau_2b_VL", "3l_1tau_1b_VT", "3l_1tau_2b_VT"
+                  #    ],
+                  #    "lep_flav_lst" : ["eee" , "eem" , "emm", "mmm"],
+                  #    "appl_lst"     : ["isSR_3l", "isAR_3l"],
+                  #},
+                  #"exactly_3j" : {
+                  #    "lep_chan_lst" : [
+                  #        "3l_p_offZ_1b" , "3l_m_offZ_1b" , "3l_p_offZ_2b" , "3l_m_offZ_2b" , "3l_onZ_1b" , "3l_onZ_2b", "3l_1tau_1b_VL", "3l_1tau_2b_VL", "3l_1tau_1b_VT", "3l_1tau_2b_VT"
+                  #    ],
+                  #    "lep_flav_lst" : ["eee" , "eem" , "emm", "mmm"],
+                  #    "appl_lst"     : ["isSR_3l", "isAR_3l"],
+                  #},
+                  #"exactly_4j" : {
+                  #    "lep_chan_lst" : [
+                  #        "3l_p_offZ_1b" , "3l_m_offZ_1b" , "3l_p_offZ_2b" , "3l_m_offZ_2b" , "3l_onZ_1b" , "3l_onZ_2b", "3l_1tau_1b_VL", "3l_1tau_2b_VL", "3l_1tau_1b_VT", "3l_1tau_2b_VT"
+                  #    ],
+                  #    "lep_flav_lst" : ["eee" , "eem" , "emm", "mmm"],
+                  #    "appl_lst"     : ["isSR_3l", "isAR_3l"],
+                  #},
+                  #"atleast_5j" : {
+                  #    "lep_chan_lst" : [
+                  #        "3l_p_offZ_1b" , "3l_m_offZ_1b" , "3l_p_offZ_2b" , "3l_m_offZ_2b" , "3l_onZ_1b" , "3l_onZ_2b", "3l_1tau_1b_VL", "3l_1tau_2b_VL", "3l_1tau_1b_VT", "3l_1tau_2b_VT"
+                  #    ],
+                  #    "lep_flav_lst" : ["eee" , "eem" , "emm", "mmm"],
+                  #    "appl_lst"     : ["isSR_3l", "isAR_3l"],
+                  #},
+                  #"atleast_0j" : {
+                  #    "lep_chan_lst" : ["3l_1tau_VL"],
+                  #    "lep_flav_lst" : ["eee" , "eem" , "emm", "mmm"],
+                  #    "appl_lst"     : ["isSR_3l", "isAR_3l"],
+                  #},
               },
-              "4l" : {
-                      "exactly_2j" : {
-                          "lep_chan_lst" : ["4l"],
-                          "lep_flav_lst" : ["llll"], # Not keeping track of these separately
-                          "appl_lst"     : ["isSR_4l"],
-                      },
-                      "exactly_3j" : {
-                          "lep_chan_lst" : ["4l"],
-                          "lep_flav_lst" : ["llll"], # Not keeping track of these separately
-                          "appl_lst"     : ["isSR_4l"],
-                      },
-                      "atleast_4j" : {
-                          "lep_chan_lst" : ["4l"],
-                          "lep_flav_lst" : ["llll"], # Not keeping track of these separately
-                          "appl_lst"     : ["isSR_4l"],
-                      },
-              },
+              #"4l" : {
+              #        "exactly_2j" : {
+              #            "lep_chan_lst" : ["4l"],
+              #            "lep_flav_lst" : ["llll"], # Not keeping track of these separately
+              #            "appl_lst"     : ["isSR_4l"],
+              #        },
+              #        "exactly_3j" : {
+              #            "lep_chan_lst" : ["4l"],
+              #            "lep_flav_lst" : ["llll"], # Not keeping track of these separately
+              #            "appl_lst"     : ["isSR_4l"],
+              #        },
+              #        "atleast_4j" : {
+              #            "lep_chan_lst" : ["4l"],
+              #            "lep_flav_lst" : ["llll"], # Not keeping track of these separately
+              #            "appl_lst"     : ["isSR_4l"],
+              #        },
+              #},
             }
             # This dictionary keeps track of which selections go with which CR categories
             cr_cat_dict = {
@@ -878,56 +1611,57 @@ class AnalysisProcessor(processor.ProcessorABC):
               #        "appl_lst"     : ["isSR_1l"] + (["isAR_2lSS_OS"] if isData else []),
               #    },
               #},
-              "2l_CRflip" : {
-                  "atmost_3j" : {
-                      "lep_chan_lst" : ["2lss_CRflip"],
-                      "lep_flav_lst" : ["ee"],
-                      "appl_lst"     : ["isSR_2lSS" , "isAR_2lSS"] + (["isAR_2lSS_OS"] if isData else []),
-                  },
-              },
-              "2l_CR" : {
-                  "exactly_1j" : {
-                      "lep_chan_lst" : ["2lss_CR"],
-                      "lep_flav_lst" : ["ee" , "em" , "mm"],
-                      "appl_lst"     : ["isSR_2lSS" , "isAR_2lSS"] + (["isAR_2lSS_OS"] if isData else []),
-                  },
-                  "exactly_2j" : {
-                      "lep_chan_lst" : ["2lss_CR"],
-                      "lep_flav_lst" : ["ee" , "em" , "mm"],
-                      "appl_lst"     : ["isSR_2lSS" , "isAR_2lSS"] + (["isAR_2lSS_OS"] if isData else []),
-                  },
-                  "exactly_3j" : {
-                      "lep_chan_lst" : ["2lss_CR"],
-                      "lep_flav_lst" : ["ee" , "em" , "mm"],
-                      "appl_lst"     : ["isSR_2lSS" , "isAR_2lSS"] + (["isAR_2lSS_OS"] if isData else []),
-                  },
-              },
-              "3l_CR" : {
-                  "exactly_0j" : {
-                      "lep_chan_lst" : ["3l_CR"],
-                      "lep_flav_lst" : ["eee" , "eem" , "emm", "mmm"],
-                      "appl_lst"     : ["isSR_3l" , "isAR_3l"],
-                  },
-                  "atleast_1j" : {
-                      "lep_chan_lst" : ["3l_CR"],
-                      "lep_flav_lst" : ["eee" , "eem" , "emm", "mmm"],
-                      "appl_lst"     : ["isSR_3l" , "isAR_3l"],
-                  },
-              },
-              "2los_CRtt" : {
-                  "exactly_2j"   : {
-                      "lep_chan_lst" : ["2los_CRtt"],
-                      "lep_flav_lst" : ["em"],
-                      "appl_lst"     : ["isSR_2lOS" , "isAR_2lOS"],
-                  },
-              },
-              "2los_CRZ" : {
-                  "atleast_0j"   : {
-                      "lep_chan_lst" : ["2los_CRZ"],#, "2los_CRZ_VLtau", "2los_CRZ_Ltau", "2los_CRZ_Mtau", "2los_CRZ_Ttau", "2los_CRZ_VTtau"],
-                      "lep_flav_lst" : ["ee", "mm"],
-                      "appl_lst"     : ["isSR_2lOS" , "isAR_2lOS"],
-                  },
-              },
+              ##"2l_CRflip" : {
+              ##    "atmost_3j" : {
+              ##        "lep_chan_lst" : ["2lss_CRflip"],
+              ##        "lep_flav_lst" : ["ee"],
+              ##        "appl_lst"     : ["isSR_2lSS" , "isAR_2lSS"] + (["isAR_2lSS_OS"] if isData else []),
+              ##    },
+              ##},
+              ##"2l_CR" : {
+              ##    "exactly_1j" : {
+              ##        "lep_chan_lst" : ["2lss_CR"],
+              ##        "lep_flav_lst" : ["ee" , "em" , "mm"],
+              ##        "appl_lst"     : ["isSR_2lSS" , "isAR_2lSS"] + (["isAR_2lSS_OS"] if isData else []),
+              ##    },
+              ##    "exactly_2j" : {
+              ##        "lep_chan_lst" : ["2lss_CR"],
+              ##        "lep_flav_lst" : ["ee" , "em" , "mm"],
+              ##        "appl_lst"     : ["isSR_2lSS" , "isAR_2lSS"] + (["isAR_2lSS_OS"] if isData else []),
+              ##    },
+              ##    "exactly_3j" : {
+              ##        "lep_chan_lst" : ["2lss_CR"],
+              ##        "lep_flav_lst" : ["ee" , "em" , "mm"],
+              ##        "appl_lst"     : ["isSR_2lSS" , "isAR_2lSS"] + (["isAR_2lSS_OS"] if isData else []),
+              ##    },
+              ##},
+              ##"3l_CR" : {
+              ##    "exactly_0j" : {
+              ##        "lep_chan_lst" : ["3l_CR"],
+              ##        "lep_flav_lst" : ["eee" , "eem" , "emm", "mmm"],
+              ##        "appl_lst"     : ["isSR_3l" , "isAR_3l"],
+              ##    },
+              ##    "atleast_1j" : {
+              ##        "lep_chan_lst" : ["3l_CR"],
+              ##        "lep_flav_lst" : ["eee" , "eem" , "emm", "mmm"],
+              ##        "appl_lst"     : ["isSR_3l" , "isAR_3l"],
+              ##    },
+              ##},
+            
+              #"2los_CRtt" : {
+              #    "exactly_2j"   : {
+              #        "lep_chan_lst" : ["2los_CRtt"],
+              #        "lep_flav_lst" : ["em"],
+              #        "appl_lst"     : ["isSR_2lOS" , "isAR_2lOS"],
+              #    },
+                #},
+              #"2los_CRZ" : {
+              #    "atleast_0j"   : {
+              #        "lep_chan_lst" : ["2los_CRZ"],#, "2los_CRZ_VLtau", "2los_CRZ_Ltau", "2los_CRZ_Mtau", "2los_CRZ_Ttau", "2los_CRZ_VTtau"],
+              #        "lep_flav_lst" : ["ee", "mm"],
+              #        "appl_lst"     : ["isSR_2lOS" , "isAR_2lOS"],
+              #    },
+                #},
               #"2los_CR" : {
               #    "atleast_0j"   : {
               #        "lep_chan_lst" : ["2los_CR_Ltau", "2los_CR_Mtau", "2los_CR_Ttau"],
@@ -1068,6 +1802,11 @@ class AnalysisProcessor(processor.ProcessorABC):
                                                 "eft_coeff"     : eft_coeffs_cut,
                                                 "eft_err_coeff" : eft_w2_coeffs_cut,
                                             }
+
+                                            #for ka, va in axes_fill_info_dict.items():
+                                                #if ka == "channel":
+                                                    #print(ka, va)
+
                                             if ("tau" in histAxisName):
                                                 histAxisName = temp_histAxisName
                                             # Skip histos that are not defined (or not relevant) to given categories
@@ -1076,10 +1815,12 @@ class AnalysisProcessor(processor.ProcessorABC):
                                             if (("ptz" in dense_axis_name) & ("onZ" not in lep_chan)): continue
                                             if ((dense_axis_name in ["o0pt","b0pt","bl0pt"]) & ("CR" in ch_name)): continue
                                             if ((("tau" in dense_axis_name)) and (("tau" not in ch_name))): continue
+                                            #print("Filling", dense_axis_name)
                                             hout[dense_axis_name].fill(**axes_fill_info_dict)
                                         
                                             if (isData) or ("tau" not in ch_name): 
                                                 break
+                                             
 
                                         # Do not loop over lep flavors if not self._split_by_lepton_flavor, it's a waste of time and also we'd fill the hists too many times
                                         if not self._split_by_lepton_flavor: break
