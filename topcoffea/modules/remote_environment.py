@@ -38,8 +38,23 @@ DEFAULT_MODULES = {
 }
 
 PIP_LOCAL_TO_WATCH = {
-    "topcoffea": ["topcoffea", "setup.py"],
-    "topeft": ["topeft", "setup.py"],
+    "topcoffea": [
+        "topcoffea",
+        "setup.py",
+        "pyproject.toml",
+        "poetry.lock",
+        "requirements.txt",
+        "setup.cfg",
+    ],
+    "topeft": [
+        "topeft",
+        "setup.py",
+        "pyproject.toml",
+        "poetry.lock",
+        "requirements.txt",
+        "setup.cfg",
+        "environment.yml",
+    ],
 }
 
 

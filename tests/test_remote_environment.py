@@ -38,6 +38,11 @@ def test_pip_local_to_watch_includes_topeft():
     assert remote_environment.PIP_LOCAL_TO_WATCH["topeft"] == [
         "topeft",
         "setup.py",
+        "pyproject.toml",
+        "poetry.lock",
+        "requirements.txt",
+        "setup.cfg",
+        "environment.yml",
     ]
 
 
