@@ -12,8 +12,6 @@ from pathlib import Path
 
 from typing import Dict, List, Optional
 
-import coffea
-
 logger = logging.getLogger()
 logging.basicConfig(level=logging.INFO, format='%(asctime)s:%(levelname)s:%(message)s')
 
@@ -23,9 +21,7 @@ py_version = "{}.{}.{}".format(
     sys.version_info[0], sys.version_info[1], sys.version_info[2]
 )  # 3.8 or 3.9, or etc.
 
-coffea_version = coffea.__version__
-
-default_modules = {
+DEFAULT_MODULES = {
     "conda": {
         "channels": ["conda-forge"],
         "packages": [
@@ -38,7 +34,7 @@ default_modules = {
             "setuptools==70.3.0",
         ],
     },
-    "pip": [f"coffea=={coffea_version}", "topcoffea"],
+    "pip": ["coffea==2025.7.3", "awkward==2.8.7", "topcoffea"],
 }
 
 pip_local_to_watch = {"topcoffea": ["topcoffea", "setup.py"]}
@@ -191,7 +187,7 @@ def get_environment(
     # ensure cache directory exists
     Path(env_dir_cache).mkdir(parents=True, exist_ok=True)
 
-    spec = dict(default_modules)
+    spec = dict(DEFAULT_MODULES)
     spec_pip_local_to_watch = dict(pip_local_to_watch)
     if extra_conda:
         spec["conda"]["packages"].extend(extra_conda)
