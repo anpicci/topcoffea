@@ -37,7 +37,10 @@ DEFAULT_MODULES = {
     "pip": ["coffea==2025.7.3", "awkward==2.8.7", "topcoffea"],
 }
 
-pip_local_to_watch = {"topcoffea": ["topcoffea", "setup.py"]}
+PIP_LOCAL_TO_WATCH = {
+    "topcoffea": ["topcoffea", "setup.py"],
+    "topeft": ["topeft", "setup.py"],
+}
 
 
 def _check_current_env(spec: Dict):
@@ -124,7 +127,7 @@ def _commits_local_pip(paths):
     for (pkg, path) in paths.items():
         try:
             to_watch = []
-            paths = pip_local_to_watch.get(pkg, None)
+            paths = PIP_LOCAL_TO_WATCH.get(pkg, None)
             if paths:
                 to_watch = [":(top){}".format(d) for d in paths]
 
@@ -188,7 +191,7 @@ def get_environment(
     Path(env_dir_cache).mkdir(parents=True, exist_ok=True)
 
     spec = dict(DEFAULT_MODULES)
-    spec_pip_local_to_watch = dict(pip_local_to_watch)
+    spec_pip_local_to_watch = dict(PIP_LOCAL_TO_WATCH)
     if extra_conda:
         spec["conda"]["packages"].extend(extra_conda)
     if extra_pip:

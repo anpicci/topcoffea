@@ -10,5 +10,13 @@ pip install -e .
 
 
 Examples of analysis repositories making use of `topcoffea`:
-* [`topeft`](https://github.com/TopEFT/topeft): EFT analyses in the top sector. 
-* [`ewkcoffea`](): Multi boson analyses. 
+* [`topeft`](https://github.com/TopEFT/topeft): EFT analyses in the top sector.
+* [`ewkcoffea`](): Multi boson analyses.
+
+## Remote environment cache
+
+`topcoffea.modules.remote_environment.get_environment` builds and caches
+Conda environments that include editable installs of `topcoffea`. The cache
+key now also tracks editable `topeft` checkouts, ensuring that modifying a
+local `topeft` repository forces an environment rebuild when the
+`unstaged="rebuild"` policy is used.
