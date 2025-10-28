@@ -111,5 +111,12 @@ def build_env_tarball_path(
 def cache_glob_pattern(cache_dir: Path, *, suffix: str = ENV_TARBALL_SUFFIX) -> str:
     """Return a glob that matches cache tarballs in ``cache_dir``."""
 
-    pattern = build_env_tarball_stem("*", "*") + suffix
+    validated_components = (
+        validate_component(ENV_CACHE_PREFIX, label="cache prefix"),
+        validate_component(ENV_SPEC_LABEL, label="spec label"),
+        "*",
+        validate_component(ENV_EDIT_LABEL, label="editable label"),
+        "*",
+    )
+    pattern = "_".join(validated_components) + suffix
     return str(Path(cache_dir).joinpath(pattern))
