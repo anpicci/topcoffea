@@ -12,8 +12,6 @@ from pathlib import Path
 
 from typing import Dict, List, Optional
 
-import coffea  # noqa: F401
-
 logger = logging.getLogger()
 logging.basicConfig(level=logging.INFO, format='%(asctime)s:%(levelname)s:%(message)s')
 
