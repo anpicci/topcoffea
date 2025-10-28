@@ -21,31 +21,28 @@ py_version = "{}.{}.{}".format(
     sys.version_info[0], sys.version_info[1], sys.version_info[2]
 )  # 3.8 or 3.9, or etc.
 
-DEFAULT_MODULES = {
+default_modules = {
     "conda": {
         "channels": ["conda-forge"],
         "packages": [
             f"python={py_version}",
+            "awkward=2.8.7",
+            "coffea=2025.7.3",
+            "numpy",
+            "ndcctools",
             "pip",
             "conda",
             "conda-pack",
             "dill",
             "xrootd",
-            "setuptools==70.3.0",
+            "setuptools==80.9.0",
         ],
     },
-    "pip": ["coffea==2025.7.3", "awkward==2.8.7", "topcoffea"],
+    "pip": ["topcoffea"],
 }
 
-PIP_LOCAL_TO_WATCH = {
-    "topcoffea": [
-        "topcoffea",
-        "setup.py",
-        "pyproject.toml",
-        "poetry.lock",
-        "requirements.txt",
-        "setup.cfg",
-    ],
+pip_local_to_watch = {
+    "topcoffea": ["topcoffea", "setup.py"],
     "topeft": [
         "topeft",
         "setup.py",
@@ -56,6 +53,10 @@ PIP_LOCAL_TO_WATCH = {
         "environment.yml",
     ],
 }
+
+# Backwards-compatibility aliases retained for callers expecting uppercase names.
+DEFAULT_MODULES = default_modules
+PIP_LOCAL_TO_WATCH = pip_local_to_watch
 
 
 def _check_current_env(spec: Dict):
@@ -137,14 +138,15 @@ def _find_local_pip():
     return path_of
 
 
-def _commits_local_pip(paths):
+def _commits_local_pip(paths, watches: Optional[Dict[str, List[str]]] = None):
     commits = {}
+    watch_paths = watches or pip_local_to_watch
     for (pkg, path) in paths.items():
         try:
             to_watch = []
-            paths = PIP_LOCAL_TO_WATCH.get(pkg, None)
-            if paths:
-                to_watch = [":(top){}".format(d) for d in paths]
+            pkg_watch_paths = watch_paths.get(pkg, None)
+            if pkg_watch_paths:
+                to_watch = [":(top){}".format(d) for d in pkg_watch_paths]
 
             try:
                 commit = subprocess.check_output(['git', 'rev-parse', 'HEAD'], cwd=path).decode().rstrip()
@@ -197,7 +199,7 @@ def _clean_cache(cache_size, *current_files):
 def get_environment(
     extra_conda: Optional[List[str]] = None,
     extra_pip: Optional[List[str]] = None,
-    extra_pip_local: Optional[dict[str]] = None,
+    extra_pip_local: Optional[Dict[str, List[str]]] = None,
     force: bool = False,
     unstaged: str = "rebuild",
     cache_size: int = 3,
@@ -205,8 +207,8 @@ def get_environment(
     # ensure cache directory exists
     Path(env_dir_cache).mkdir(parents=True, exist_ok=True)
 
-    spec = dict(DEFAULT_MODULES)
-    spec_pip_local_to_watch = dict(PIP_LOCAL_TO_WATCH)
+    spec = dict(default_modules)
+    spec_pip_local_to_watch = dict(pip_local_to_watch)
     if extra_conda:
         spec["conda"]["packages"].extend(extra_conda)
     if extra_pip:
@@ -217,7 +219,7 @@ def get_environment(
 
     packages_hash = hashlib.sha256(json.dumps(spec).encode()).hexdigest()[0:8]
     pip_paths = _find_local_pip()
-    pip_commits = _commits_local_pip(pip_paths)
+    pip_commits = _commits_local_pip(pip_paths, spec_pip_local_to_watch)
     pip_check = _compute_commit(pip_paths, pip_commits)
 
     env_name = str(Path(env_dir_cache).joinpath("env_spec_{}_edit_{}".format(packages_hash, pip_check)).with_suffix(".tar.gz"))
