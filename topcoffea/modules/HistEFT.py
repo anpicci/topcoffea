@@ -12,6 +12,7 @@
 
 
 import coffea
+import coffea.hist
 import numpy as np
 import copy
 import awkward as ak

@@ -1,5 +1,5 @@
 import numpy as np
-from coffea import hist
+import coffea.hist as hist
 from topcoffea.modules.HistEFT import HistEFT
 import topcoffea.modules.eft_helper as efth
 
