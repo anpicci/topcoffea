@@ -9,6 +9,7 @@ dependencies:
   - dill
   - xrootd
   - ndcctools
+  - numpy
   - setuptools==70.3.0
   - git
   - pyyaml
