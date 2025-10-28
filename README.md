@@ -22,10 +22,11 @@ Examples of analysis repositories making use of `topcoffea`:
 
 `topcoffea.modules.remote_environment.get_environment` builds and caches
 Conda environments that include editable installs of `topcoffea`. The
-cache tarballs live next to your workflow as
-`topeft-envs/env_spec_<hash>_edit_<commit>.tar.gz`, and the helper
-function accepts an `unstaged` policy of either `rebuild` (default) or
-`fail` when it detects local changes in editable checkouts. The cache key
+cache tarballs, named via `topcoffea.modules.env_cache`, live next to
+your workflow as `topeft-envs/env_spec_<hash>_edit_<commit>.tar.gz`, and
+the helper function accepts an `unstaged` policy of either `rebuild`
+(default) or `fail` when it detects local changes in editable
+checkouts. The cache key
 tracks editable `topeft` checkouts so modifying a local `topeft`
 repository forces an environment rebuild when `unstaged="rebuild"` is
 used. Pair the resulting tarball with TaskVine workers submitted via

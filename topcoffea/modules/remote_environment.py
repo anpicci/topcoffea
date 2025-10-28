@@ -12,6 +12,8 @@ from pathlib import Path
 
 from typing import Dict, List, Optional
 
+from .env_cache import build_env_tarball_path, cache_glob_pattern
+
 logger = logging.getLogger()
 logging.basicConfig(level=logging.INFO, format='%(asctime)s:%(levelname)s:%(message)s')
 
@@ -189,7 +191,10 @@ def _compute_commit(paths, commits):
 
 
 def _clean_cache(cache_size, *current_files):
-    envs = sorted(glob.glob(os.path.join(env_dir_cache, 'env_*.tar.gz')), key=lambda f: -os.stat(f).st_mtime)
+    envs = sorted(
+        glob.glob(cache_glob_pattern(env_dir_cache)),
+        key=lambda f: -os.stat(f).st_mtime,
+    )
     for f in envs[cache_size:]:
         if f not in current_files:
             logger.info("Trimming cached environment file {}".format(f))
@@ -222,7 +227,7 @@ def get_environment(
     pip_commits = _commits_local_pip(pip_paths, spec_pip_local_to_watch)
     pip_check = _compute_commit(pip_paths, pip_commits)
 
-    env_name = str(Path(env_dir_cache).joinpath("env_spec_{}_edit_{}".format(packages_hash, pip_check)).with_suffix(".tar.gz"))
+    env_name = str(build_env_tarball_path(env_dir_cache, packages_hash, pip_check))
     _clean_cache(cache_size, env_name)
 
     if pip_check == 'HEAD':
