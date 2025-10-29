@@ -14,6 +14,12 @@ environment matches what the remote cache builds.
 
 
 
+## Documentation
+
+* [Quickstart](docs/quickstart.md) – condensed installation and executor notes.
+* [Configuration guide](docs/configuration.md) – details on `RunConfig`, YAML
+  overlays, and the dataclass helpers powering executors and jet corrections.
+
 Examples of analysis repositories making use of `topcoffea`:
 * [`topeft`](https://github.com/TopEFT/topeft): EFT analyses in the top sector.
 * [`ewkcoffea`](): Multi boson analyses.
