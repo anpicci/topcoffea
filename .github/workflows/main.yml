@@ -60,6 +60,11 @@ jobs:
           pytest tests/test_HistEFT_add.py
         shell: micromamba-shell {0}
 
+      - name: Smoke test TaskVine CLI
+        run: |
+          pytest tests/test_taskvine_cli.py -k taskvine
+        shell: micromamba-shell {0}
+
 
   Check-topcoffea:
     runs-on: ubuntu-latest
@@ -105,4 +110,8 @@ jobs:
       - name: Test histEFT
         run: |
           conda run -n topcoffea-env pytest tests/test_HistEFT_add.py
+
+      - name: Smoke test TaskVine CLI
+        run: |
+          conda run -n topcoffea-env pytest tests/test_taskvine_cli.py -k taskvine
 
