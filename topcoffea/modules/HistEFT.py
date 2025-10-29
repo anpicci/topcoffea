@@ -19,7 +19,7 @@ import awkward as ak
 import numbers
 
 from coffea.hist.hist_tools import DenseAxis
-from topcoffea.modules.utils import regex_match
+from topcoffea.modules.io_utils import regex_match
 
 import topcoffea.modules.eft_helper as efth
 

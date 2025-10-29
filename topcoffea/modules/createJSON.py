@@ -4,7 +4,8 @@ import yaml
 
 from topcoffea.modules.paths import topcoffea_path
 from topcoffea.modules.DASsearch import GetDatasetFromDAS, RunDasGoClientCommand
-from topcoffea.modules.utils import get_files, get_info, get_list_of_wc_names
+from topcoffea.modules.io_utils import get_files
+from topcoffea.modules.root_utils import get_info, get_list_of_wc_names
 
 
 def main():

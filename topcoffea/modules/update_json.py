@@ -1,7 +1,7 @@
 import os
 import json
 
-from topcoffea.modules.utils import load_sample_json_file
+from topcoffea.modules.io_utils import load_sample_json_file
 
 def update_json(fname,dry_run=False,outname=None,verbose=False,**kwargs):
     '''
