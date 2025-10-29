@@ -5,8 +5,10 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import shutil
 import socket
+import subprocess
 import sys
 from pathlib import Path
 from typing import Sequence
@@ -69,9 +71,6 @@ def main(argv: Sequence[str] | None = None) -> int:
     if config.executor != "taskvine":
         raise SystemExit("Only the TaskVine executor is supported by this test CLI.")
 
-    if shutil.which("vine_worker") is None:
-        raise SystemExit("TaskVine worker binary 'vine_worker' was not found in PATH.")
-
     input_path = Path(args.input)
     output_path = Path(args.output)
     output_path.parent.mkdir(parents=True, exist_ok=True)
@@ -83,23 +82,51 @@ def main(argv: Sequence[str] | None = None) -> int:
     port_range = config.port or executor_cli.parse_port_range(None)
     manager_port = _pick_port(port_range)
 
-    executor = FuturesExecutor(port=manager_port)
+    vine_worker_binary = shutil.which("vine_worker")
+    if vine_worker_binary is None:
+        raise SystemExit("TaskVine worker binary 'vine_worker' was not found in PATH.")
+
+    executor = FuturesExecutor(port=manager_port, factory=False)
+    worker_processes: list[subprocess.Popen[str]] = []
+    results: list[dict] = []
     try:
         worker_count = _normalise_workers(config.nworkers)
-        executor.set("min-workers", worker_count)
-        executor.set("max-workers", worker_count)
+
+        worker_command = [
+            vine_worker_binary,
+            "localhost",
+            str(manager_port),
+        ]
+
+        for _ in range(worker_count):
+            worker_processes.append(
+                subprocess.Popen(worker_command, env=os.environ.copy(), cwd=Path.cwd())
+            )
 
         futures = [executor.submit(process_task, task.to_mapping()) for task in tasks]
         results = [future.result() for future in futures]
     finally:
-        if getattr(executor, "manager", None) is not None:
+        manager = getattr(executor, "manager", None)
+        if manager is not None:
             try:
-                executor.manager.cancel_all()
+                manager.workers_shutdown()
             except Exception:
                 pass
-        if getattr(executor, "factory", None) is not None:
+        for proc in worker_processes:
             try:
-                executor.factory.stop()
+                proc.terminate()
+                proc.wait(timeout=10)
+            except subprocess.TimeoutExpired:
+                proc.kill()
+                try:
+                    proc.wait(timeout=5)
+                except Exception:
+                    pass
+            except Exception:
+                pass
+        if manager is not None:
+            try:
+                manager.cancel_all()
             except Exception:
                 pass
 
