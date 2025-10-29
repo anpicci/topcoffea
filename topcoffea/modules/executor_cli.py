@@ -9,8 +9,11 @@ preferred distributed backend.
 
 from __future__ import annotations
 
+import argparse
 from dataclasses import dataclass
-from typing import Iterable, Optional, Sequence, Tuple
+from typing import Dict, Iterable, Mapping, Optional, Sequence, Tuple
+
+from . import remote_environment
 
 __all__ = [
     "DEFAULT_EXECUTOR",
@@ -19,13 +22,43 @@ __all__ = [
     "register_executor_arguments",
     "executor_config_from_values",
     "parse_port_range",
+    "TASKVINE_ENVIRONMENT_AUTO",
+    "TASKVINE_EPILOG",
+    "TASKVINE_EXTRA_PIP_LOCAL",
 ]
 
 DEFAULT_EXECUTOR = "taskvine"
-KNOWN_EXECUTORS: Tuple[str, ...] = ("futures", "taskvine")
+KNOWN_EXECUTORS: Tuple[str, ...] = ("futures", "taskvine", "work_queue")
+EXECUTOR_ALIASES = {"work_queue": "taskvine"}
 DEFAULT_PORT_RANGE = "9123-9130"
 DEFAULT_NWORKERS = 8
 DEFAULT_CHUNKSIZE = 100_000
+TASKVINE_ENVIRONMENT_AUTO = "auto"
+
+TASKVINE_EXTRA_PIP_LOCAL: Dict[str, Tuple[str, ...]] = {
+    "topeft": tuple(
+        remote_environment.PIP_LOCAL_TO_WATCH.get(
+            "topeft", ("topeft", "setup.py")
+        )
+    )
+}
+
+TASKVINE_EPILOG = """\
+TaskVine quick start:
+
+  Submit workers with:
+    vine_submit_workers --cores 4 --memory 6000 --disk 8000 \
+      --wall-time 12h --environment <path/to/env.tar.gz>
+
+  Recommended per-worker resources:
+    • 4 CPU cores
+    • 6 GiB RAM
+    • 8 GiB local scratch space
+
+  Use --environment-file auto to build or reuse the cached Conda
+  environment containing editable topcoffea/topeft checkouts before
+  launching workers.
+"""
 
 
 @dataclass(frozen=True)
@@ -37,6 +70,7 @@ class ExecutorCLIConfig:
     chunksize: Optional[int]
     nchunks: Optional[int]
     port: Optional[Tuple[int, int]]
+    environment_file: Optional[str]
 
     @property
     def requires_port(self) -> bool:
@@ -45,6 +79,14 @@ class ExecutorCLIConfig:
 
 def register_executor_arguments(parser) -> None:
     """Attach common executor options to an ``argparse`` parser."""
+
+    if parser.epilog:
+        parser.epilog = f"{parser.epilog}\n\n{TASKVINE_EPILOG}"
+    else:
+        parser.epilog = TASKVINE_EPILOG
+
+    if parser.formatter_class is argparse.HelpFormatter:
+        parser.formatter_class = argparse.RawDescriptionHelpFormatter
 
     parser.add_argument(
         "--executor",
@@ -82,6 +124,14 @@ def register_executor_arguments(parser) -> None:
             "Ignored when running with the futures executor."
         ),
     )
+    parser.add_argument(
+        "--environment-file",
+        default=None,
+        help=(
+            "TaskVine environment tarball to ship to workers. Specify 'auto' "
+            "to build or reuse the cached Conda environment."
+        ),
+    )
 
 
 def executor_config_from_values(
@@ -91,6 +141,8 @@ def executor_config_from_values(
     chunksize: Optional[int] = None,
     nchunks: Optional[int] = None,
     port: Optional[Sequence[int] | str] = None,
+    environment_file: Optional[str] = None,
+    extra_pip_local: Optional[Mapping[str, Sequence[str]]] = None,
 ) -> ExecutorCLIConfig:
     """Normalise user provided values into an :class:`ExecutorCLIConfig`."""
 
@@ -99,23 +151,49 @@ def executor_config_from_values(
             f'Unknown executor "{executor}". Expected one of {", ".join(KNOWN_EXECUTORS)}.'
         )
 
+    normalized_executor = EXECUTOR_ALIASES.get(executor, executor)
+
     def _maybe_int(value: Optional[int | str], default: Optional[int] = None) -> Optional[int]:
         if value in (None, ""):
             return default
         return int(value)
 
     port_range: Optional[Tuple[int, int]]
-    if executor == "taskvine":
+    if normalized_executor == "taskvine":
         port_range = parse_port_range(port)
     else:
         port_range = None
 
+    environment_path: Optional[str] = None
+    if environment_file:
+        environment_file = environment_file.strip()
+
+    if normalized_executor == "taskvine":
+        if environment_file == TASKVINE_ENVIRONMENT_AUTO:
+            merged_extra: Dict[str, Sequence[str]] = {
+                pkg: tuple(paths) for pkg, paths in TASKVINE_EXTRA_PIP_LOCAL.items()
+            }
+            if extra_pip_local:
+                for pkg, paths in extra_pip_local.items():
+                    merged_extra[pkg] = tuple(paths)
+            environment_path = remote_environment.get_environment(
+                extra_pip_local={
+                    pkg: list(paths) for pkg, paths in merged_extra.items()
+                }
+            )
+        elif environment_file:
+            environment_path = environment_file
+    else:
+        if environment_file and environment_file != TASKVINE_ENVIRONMENT_AUTO:
+            environment_path = environment_file
+
     return ExecutorCLIConfig(
-        executor=executor,
+        executor=normalized_executor,
         nworkers=_maybe_int(nworkers, DEFAULT_NWORKERS),
         chunksize=_maybe_int(chunksize, DEFAULT_CHUNKSIZE),
         nchunks=_maybe_int(nchunks),
         port=port_range,
+        environment_file=environment_path,
     )
 
 
