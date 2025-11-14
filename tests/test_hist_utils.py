@@ -1,8 +1,12 @@
 from pathlib import Path
+import pickle
 
 import pytest
 
+hist = pytest.importorskip("hist")
+
 from topcoffea.modules.hist_utils import (
+    LazyHist,
     dict_comp,
     dump_to_pkl,
     get_diff_between_dicts,
@@ -35,6 +39,59 @@ def test_dump_and_load_roundtrip(tmp_path):
     assert stored.exists()
     loaded = get_hist_from_pkl(str(stored))
     assert loaded == payload
+
+
+def _make_hist(fill: bool) -> hist.Hist:
+    h = hist.Hist(hist.axis.StrCategory([], name="cat", growth=True))
+    if fill:
+        h.fill(cat="nominal")
+    return h
+
+
+def test_get_hist_from_pkl_tuple_keys_lazy(tmp_path):
+    full = _make_hist(True)
+    empty = _make_hist(False)
+    payload = {
+        ("sample", "nominal"): {"hist": pickle.dumps(full), "empty": full.empty()},
+        ("sample", "empty"): {"hist": pickle.dumps(empty), "empty": empty.empty()},
+    }
+    output = tmp_path / "tuple_hist"
+    dump_to_pkl(str(output), payload)
+    stored = Path(str(output) + ".pkl.gz")
+
+    lazy_loaded = get_hist_from_pkl(str(stored), materialize=False)
+    assert isinstance(lazy_loaded[("sample", "nominal")], LazyHist)
+    assert lazy_loaded[("sample", "nominal")].sum() == full.sum()
+    assert lazy_loaded[("sample", "empty")].empty()
+
+    filtered_lazy = get_hist_from_pkl(str(stored), allow_empty=False, materialize=False)
+    assert ("sample", "empty") not in filtered_lazy
+
+    eager = get_hist_from_pkl(str(stored), allow_empty=False, materialize=True)
+    assert isinstance(eager[("sample", "nominal")], hist.Hist)
+
+
+def test_get_hist_from_pkl_tuple_keys_hist_payload(tmp_path):
+    full = _make_hist(True)
+    payload = {("sample", "nominal"): full}
+    output = tmp_path / "tuple_hist_direct"
+    dump_to_pkl(str(output), payload)
+    stored = Path(str(output) + ".pkl.gz")
+
+    loaded = get_hist_from_pkl(str(stored))
+    assert isinstance(loaded[("sample", "nominal")], hist.Hist)
+    assert loaded[("sample", "nominal")].sum() == full.sum()
+
+
+def test_get_hist_from_pkl_legacy_warning(tmp_path):
+    legacy = _make_hist(True)
+    output = tmp_path / "legacy_hist"
+    dump_to_pkl(str(output), {"legacy": legacy})
+    stored = Path(str(output) + ".pkl.gz")
+
+    with pytest.warns(UserWarning, match="legacy categorical-axis"):
+        loaded = get_hist_from_pkl(str(stored))
+    assert isinstance(loaded["legacy"], hist.Hist)
 
 
 def test_get_diff_between_dicts_percent():

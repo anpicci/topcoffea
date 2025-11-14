@@ -4,9 +4,20 @@ from __future__ import annotations
 
 import gzip
 import pickle
-from typing import Dict, Iterable, List, Mapping, Tuple
+import warnings
+from typing import Any, Callable, Dict, Iterable, List, Mapping, Tuple
 
-import cloudpickle
+try:
+    import cloudpickle  # type: ignore
+except ModuleNotFoundError:  # pragma: no cover - exercised in environments without cloudpickle
+    cloudpickle = pickle  # type: ignore
+
+try:  # pragma: no cover - optional dependency is exercised in tests when available
+    from hist import Hist as _Hist  # type: ignore
+    from hist.axis import StrCategory as _StrCategory  # type: ignore
+except Exception:  # pragma: no cover - hist is an optional dependency for this module
+    _Hist = None
+    _StrCategory = ()
 
 
 ############## Floats manipulations and tools ##############
@@ -37,11 +48,151 @@ def get_hist_dict_non_empty(h: Mapping) -> Dict:
     return {k: v for k, v in h.items() if not v.empty()}
 
 
-def get_hist_from_pkl(path_to_pkl: str, allow_empty: bool = True):
-    h = pickle.load(gzip.open(path_to_pkl))
-    if not allow_empty:
-        h = get_hist_dict_non_empty(h)
-    return h
+class LazyHist:
+    """Proxy object that materialises a :class:`hist.Hist` instance on demand."""
+
+    def __init__(self, factory: Callable[[], Any], empty_hint: bool | None = None):
+        self._factory = factory
+        self._empty_hint = empty_hint
+        self._instance: Any | None = None
+
+    def materialize(self):
+        if self._instance is None:
+            self._instance = self._factory()
+        return self._instance
+
+    def empty(self) -> bool:
+        if self._empty_hint is not None:
+            return self._empty_hint
+        inst = self.materialize()
+        empty_method = getattr(inst, "empty", None)
+        if callable(empty_method):
+            self._empty_hint = empty_method()
+        else:
+            sum_method = getattr(inst, "sum", None)
+            if callable(sum_method):
+                self._empty_hint = bool(sum_method() == 0)
+            else:
+                self._empty_hint = False
+        return self._empty_hint
+
+    def __getattr__(self, name):  # pragma: no cover - forwarded attributes exercised implicitly
+        return getattr(self.materialize(), name)
+
+    @property
+    def empty_hint(self) -> bool | None:
+        return self._empty_hint
+
+
+def _is_hist_payload(value: Any) -> bool:
+    if isinstance(value, LazyHist):
+        return True
+    if _Hist is not None and isinstance(value, _Hist):
+        return True
+    if isinstance(value, (bytes, bytearray)):
+        return True
+    if hasattr(value, "empty") and callable(value.empty):
+        return True
+    if isinstance(value, Mapping):
+        payload_keys = {"hist", "payload", "packed_hist", "data"}
+        if payload_keys & set(value.keys()):
+            return True
+    return False
+
+
+def _build_hist_factory(value: Any) -> tuple[Callable[[], Any], bool | None]:
+    empty_hint: bool | None = None
+    payload = value
+
+    if isinstance(value, LazyHist):
+        return value.materialize, value.empty_hint
+
+    if isinstance(value, Mapping):
+        empty_hint = value.get("empty") if isinstance(value.get("empty"), bool) else None
+        for key in ("hist", "payload", "packed_hist", "data"):
+            if key in value:
+                payload = value[key]
+                break
+
+    if _Hist is not None and isinstance(payload, _Hist):
+        return lambda: payload, empty_hint
+
+    if isinstance(payload, LazyHist):
+        return payload.materialize, payload.empty_hint
+
+    if isinstance(payload, (bytes, bytearray)):
+        return lambda: cloudpickle.loads(payload), empty_hint
+
+    if callable(payload):
+        return payload, empty_hint
+
+    return lambda: payload, empty_hint
+
+
+def _warn_for_legacy_categorical(mapping: Mapping) -> None:
+    if not mapping or _Hist is None or not _StrCategory:
+        return
+    for value in mapping.values():
+        if not (_Hist is not None and isinstance(value, _Hist)):
+            continue
+        if any(isinstance(axis, _StrCategory) for axis in value.axes):
+            warnings.warn(
+                "Detected legacy categorical-axis histograms in pickle. "
+                "Tuple keyed pickles provide unambiguous access; consider re-exporting.",
+                UserWarning,
+                stacklevel=3,
+            )
+            break
+
+
+def get_hist_from_pkl(
+    path_to_pkl: str,
+    allow_empty: bool = True,
+    *,
+    materialize: bool = True,
+):
+    """Load histogram dictionaries from a gzip-compressed pickle.
+
+    Parameters
+    ----------
+    path_to_pkl:
+        Location of the ``.pkl.gz`` file to be read.
+    allow_empty:
+        When ``False`` histograms whose ``empty()`` method returns ``True`` are omitted.
+    materialize:
+        When ``True`` (the default) histogram payloads are returned as eagerly materialised
+        :class:`hist.Hist` objects. Set to ``False`` to receive :class:`LazyHist` proxies
+        that instantiate histograms only on first use.
+
+    Returns
+    -------
+    Mapping
+        A mapping whose keys are strings or tuples of strings and whose values are either
+        materialised :class:`hist.Hist` objects or :class:`LazyHist` instances, depending on
+        the ``materialize`` flag.
+    """
+
+    with gzip.open(path_to_pkl, "rb") as fh:
+        mapping = pickle.load(fh)
+
+    if not isinstance(mapping, Mapping):
+        return mapping
+
+    if not any(isinstance(k, tuple) for k in mapping):
+        _warn_for_legacy_categorical(mapping)
+
+    result: Dict = {}
+    for key, value in mapping.items():
+        if _is_hist_payload(value):
+            factory, empty_hint = _build_hist_factory(value)
+            lazy_hist = LazyHist(factory, empty_hint)
+            if not allow_empty and lazy_hist.empty():
+                continue
+            result[key] = lazy_hist.materialize() if materialize else lazy_hist
+        else:
+            result[key] = value
+
+    return result
 
 
 ############## Dictionary manipulations and tools ##############
@@ -182,6 +333,7 @@ __all__ = [
     "get_diff_between_nested_dicts",
     "get_hist_dict_non_empty",
     "get_hist_from_pkl",
+    "LazyHist",
     "get_pdiff",
     "print_yld_dicts",
     "put_none_errs",
