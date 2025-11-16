@@ -1,7 +1,7 @@
 import numpy as np
 import awkward as ak
 import coffea.hist as hist
-from topcoffea.modules.HistEFT import HistEFT
+from topcoffea.modules.histEFT import HistEFT
 from topcoffea.modules.WCPoint import WCPoint
 from topcoffea.modules.WCFit import WCFit
 
