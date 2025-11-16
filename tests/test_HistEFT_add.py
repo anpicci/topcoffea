@@ -1,6 +1,6 @@
 import numpy as np
 import coffea.hist as hist
-from topcoffea.modules.HistEFT import HistEFT
+from topcoffea.modules.histEFT import HistEFT
 import topcoffea.modules.eft_helper as efth
 
 # Let's generate some fake data to use for testing
