@@ -84,6 +84,25 @@ class HistEFT(SparseHist, family=_family):
         - Categorical axes should be specified with growth=True.
         """
 
+        # Backwards compatibility: early versions expected a positional
+        # signature ``HistEFT("Events", ["ctG"], axis1, axis2, ...)``.  The
+        # modern API follows ``hist.Hist`` and therefore takes the axes first
+        # plus keyword arguments for metadata.  Detect the legacy convention and
+        # translate it on the fly.
+        if args and isinstance(args[0], str):
+            kwargs.setdefault("label", args[0])
+            args = args[1:]
+
+        if args and isinstance(args[0], (list, tuple)):
+            maybe_wc = args[0]
+            if all(isinstance(item, str) for item in maybe_wc):
+                if wc_names and list(wc_names) != list(maybe_wc):
+                    raise ValueError(
+                        "Conflicting Wilson coefficient definitions provided"
+                    )
+                wc_names = list(maybe_wc)
+                args = args[1:]
+
         if not wc_names:
             wc_names = []
 

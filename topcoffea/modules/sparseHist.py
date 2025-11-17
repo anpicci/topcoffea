@@ -82,6 +82,16 @@ class SparseHist(hist.Hist, family=hist):
         else:
             return self[{}]
 
+    # Legacy ``coffea.hist`` provided ``copy(content=False)``; a few callers
+    # still rely on that signature.  Implement the method directly here so that
+    # it works for every histogram built on top of ``SparseHist``.
+    def copy(self, content: bool = True):
+        if content:
+            import copy as _copy
+
+            return _copy.deepcopy(self)
+        return self.empty_from_axes(categorical_axes=self.categorical_axes)
+
     def __str__(self):
         return repr(self)
 

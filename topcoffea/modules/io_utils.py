@@ -19,7 +19,16 @@ def regex_match(lst: Iterable[str], regex_lst: Iterable[str]) -> List[str]:
     if len(patterns) == 0:
         return list(lst)
 
-    compiled = [re.compile(r"{}".format(pattern)) for pattern in patterns]
+    def _normalize(pattern: str) -> str:
+        try:
+            # ``unicode_escape`` interprets sequences such as ``\\.`` into the
+            # expected ``\.``, which matches the behaviour that most of the
+            # legacy configuration files relied on.
+            return pattern.encode().decode("unicode_escape")
+        except UnicodeDecodeError:
+            return pattern
+
+    compiled = [re.compile(_normalize(str(pattern))) for pattern in patterns]
     matches: List[str] = []
     for candidate in lst:
         for pat in compiled:
