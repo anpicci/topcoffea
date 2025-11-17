@@ -1,4 +1,5 @@
 import hist
+import pytest
 from topcoffea.modules.histEFT import HistEFT
 
 from collections import defaultdict
@@ -97,3 +98,16 @@ def test_flow():
     assert ef[0] > 0 and ef[-1] > 0
 
     assert np.all(np.abs(en[1:-1] - ef[1:-1]) < 1e-10)
+
+
+def test_eval_input_types():
+    mapping_eval = h.eval({"ctG": 0.25})["ttH", "ch0"]
+    array_eval = h.eval(np.array([0.25]))["ttH", "ch0"]
+
+    assert np.allclose(mapping_eval, array_eval)
+
+    with pytest.raises(ValueError):
+        h.eval(np.array([0.1, 0.2]))
+
+    with pytest.raises(LookupError):
+        h.eval({"bad_wc": 1})

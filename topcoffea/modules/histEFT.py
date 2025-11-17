@@ -117,8 +117,13 @@ class HistEFT(SparseHist, family=_family):
         if self._needs_rebinning:
             raise ValueError("Do not know how to rebin yet...")
 
-        kwargs.setdefault("storage", "Double")
-        if kwargs["storage"] != "Double":
+        kwargs.setdefault("storage", hist.storage.Double())
+        if isinstance(kwargs["storage"], str):
+            if kwargs["storage"].lower() == "double":
+                kwargs["storage"] = hist.storage.Double()
+            else:
+                raise ValueError("only 'Double' storage is supported")
+        if not isinstance(kwargs["storage"], hist.storage.Double):
             raise ValueError("only 'Double' storage is supported")
 
         if args[-1].name == "quadratic_term":
@@ -267,14 +272,13 @@ class HistEFT(SparseHist, family=_family):
         # [c00*w0, c01*w0, c02*w0, ..., c10*w1, c11*w1, c12*w1, ...]
         super().fill(quadratic_term=indices, **values, weight=eft_coeff)
 
-    def _wc_for_eval(self, values):
+    def _wc_for_eval(self, values: ArrayLike | Mapping | None):
         """Set the WC values used to evaluate the bin contents of this histogram
         where the WCs are specified as keyword arguments.  Any WCs not listed are set to zero.
         """
         if values is None:
             return np.zeros(self._wc_count)
 
-        result = values
         if isinstance(values, Mapping):
             result = np.zeros(self._wc_count)
             for wc, val in values.items():
@@ -284,8 +288,16 @@ class HistEFT(SparseHist, family=_family):
                 except KeyError:
                     msg = f'This HistEFT does not know about the "{wc}" Wilson coefficient. Known coefficients: {list(self._wc_names.keys())}'
                     raise LookupError(msg)
+            return result
 
-        return np.asarray(result)
+        result = np.asarray(values, dtype=float)
+
+        if result.shape != (self._wc_count,):
+            raise ValueError(
+                f"Expected {self._wc_count} Wilson coefficients, received shape {result.shape}"
+            )
+
+        return result
 
     def eval(self, values):
         """Extract the sum of weights arrays from this histogram
