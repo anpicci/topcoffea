@@ -63,7 +63,12 @@ def _tuple_sort_key(key: TupleKey) -> Tuple[Any, ...]:
     ordered_parts = [variable]
 
     for optional_value in (channel, application, sample, systematic):
-        ordered_parts.append((optional_value is not None, optional_value or ""))
+        ordered_parts.append(
+            (
+                optional_value is not None,
+                "" if optional_value is None else str(optional_value),
+            )
+        )
 
     return tuple(ordered_parts)
 
@@ -118,13 +123,19 @@ def materialise_tuple_dict(
 ) -> "OrderedDict[TupleKey, Dict[str, Any]]":
     """Return an :class:`OrderedDict` keyed by sorted histogram tuple identifiers."""
 
-    ordered_items = []
-    for key, histogram in sorted(hist_store.items(), key=lambda item: _tuple_sort_key(item[0])):
-        if not isinstance(key, tuple) or len(key) != 5:
+    tuple_entries = []
+    for key, histogram in hist_store.items():
+        if not isinstance(key, tuple):
+            continue
+        if len(key) != 5:
             raise ValueError(
                 "Histogram accumulator keys must be 5-tuples of "
                 "(variable, channel, application, sample, systematic)."
             )
+        tuple_entries.append((key, histogram))
+
+    ordered_items = []
+    for key, histogram in sorted(tuple_entries, key=lambda item: _tuple_sort_key(item[0])):
         summary = _summarise_histogram(histogram)
         ordered_items.append((key, summary))
 
