@@ -56,6 +56,18 @@ def _hist_like(instance: Any) -> bool:
     return isinstance(instance, hist_classes)
 
 
+def _tuple_sort_key(key: TupleKey) -> Tuple[Any, ...]:
+    """Return a sort key that safely orders tuple identifiers with optional fields."""
+
+    variable, channel, application, sample, systematic = key
+    ordered_parts = [variable]
+
+    for optional_value in (channel, application, sample, systematic):
+        ordered_parts.append((optional_value is not None, optional_value or ""))
+
+    return tuple(ordered_parts)
+
+
 def _summarise_histogram(histogram: Any) -> Dict[str, Any]:
     """Create a deterministic summary payload for *histogram*."""
 
@@ -107,7 +119,7 @@ def materialise_tuple_dict(
     """Return an :class:`OrderedDict` keyed by sorted histogram tuple identifiers."""
 
     ordered_items = []
-    for key, histogram in sorted(hist_store.items(), key=lambda item: item[0]):
+    for key, histogram in sorted(hist_store.items(), key=lambda item: _tuple_sort_key(item[0])):
         if not isinstance(key, tuple) or len(key) != 5:
             raise ValueError(
                 "Histogram accumulator keys must be 5-tuples of "
@@ -148,7 +160,9 @@ def normalise_runner_output(payload: Mapping[Any, Any]) -> Mapping[Any, Any]:
         return payload
 
     ordered: "OrderedDict[Any, Any]" = OrderedDict()
-    for key, histogram in sorted(tuple_histograms.items(), key=lambda item: item[0]):
+    for key, histogram in sorted(
+        tuple_histograms.items(), key=lambda item: _tuple_sort_key(item[0])
+    ):
         ordered[key] = histogram
     for key, value in payload.items():
         if key not in tuple_histograms:
