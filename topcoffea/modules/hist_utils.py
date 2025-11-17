@@ -19,6 +19,8 @@ except Exception:  # pragma: no cover - hist is an optional dependency for this 
     _Hist = None
     _StrCategory = ()
 
+from .runner_output import normalise_runner_output
+
 
 ############## Floats manipulations and tools ##############
 
@@ -39,8 +41,9 @@ def dump_to_pkl(out_name: str, out_file) -> None:
     if not out_name.endswith(".pkl.gz"):
         out_name = out_name + ".pkl.gz"
     print(f"\nSaving output to {out_name}...")
+    serialisable_payload = normalise_runner_output(out_file)
     with gzip.open(out_name, "wb") as fout:
-        cloudpickle.dump(out_file, fout)
+        cloudpickle.dump(serialisable_payload, fout)
     print("Done.\n")
 
 
@@ -334,6 +337,7 @@ __all__ = [
     "get_hist_dict_non_empty",
     "get_hist_from_pkl",
     "LazyHist",
+    "normalise_runner_output",
     "get_pdiff",
     "print_yld_dicts",
     "put_none_errs",
