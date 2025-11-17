@@ -19,9 +19,7 @@ logging.basicConfig(level=logging.INFO, format='%(asctime)s:%(levelname)s:%(mess
 
 env_dir_cache = Path.cwd().joinpath(Path('topeft-envs'))
 
-py_version = "{}.{}.{}".format(
-    sys.version_info[0], sys.version_info[1], sys.version_info[2]
-)  # 3.8 or 3.9, or etc.
+py_version = "3.13"  # Keep in sync with environment.yml
 
 default_modules = {
     "conda": {
@@ -31,13 +29,13 @@ default_modules = {
             "awkward=2.8.7",
             "coffea=2025.7.3",
             "numpy",
-            "ndcctools",
+            "ndcctools>=7.14.11",
             "pip",
             "conda",
             "conda-pack",
             "dill",
             "xrootd",
-            "setuptools==80.9.0",
+            "setuptools=80.9.0",
         ],
     },
     "pip": ["topcoffea"],

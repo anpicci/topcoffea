@@ -2,17 +2,16 @@ name: coffea-env
 channels:
   - conda-forge
 dependencies:
-  - conda-forge::python=3.9
+  - conda-forge::python=3.13
+  - coffea=2025.7.3
+  - awkward=2.8.7
   - pip
   - conda
   - conda-pack
   - dill
   - xrootd
-  - ndcctools
+  - ndcctools>=7.14.11
   - numpy
-  - setuptools==70.3.0
+  - setuptools=80.9.0
   - git
   - pyyaml
-  - pip:
-      - coffea==2025.7.3
-      - awkward==2.8.7
