@@ -7,10 +7,12 @@ cd topcoffea
 pip install -e .
 ```
 
-The conda environments distributed with `topcoffea` and `topeft` pin
-`coffea==2025.7.3` and `awkward==2.8.7`, alongside
-`setuptools==80.9.0`, `ndcctools`, and related tooling so that the local
-environment matches what the remote cache builds.
+The conda environments distributed with `topcoffea` and `topeft` now lock to
+Python 3.13 alongside `coffea==2025.7.3`, `awkward==2.8.7`,
+`ndcctools>=7.14.11`, and `setuptools=80.9.0` so local installs match the
+remote cache.  Rebuild the cached worker tarball with
+`python -m topcoffea.modules.remote_environment` after pulling these changes so
+downstream workflows pick up the refreshed pins.
 
 
 
