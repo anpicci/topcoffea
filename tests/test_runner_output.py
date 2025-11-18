@@ -59,6 +59,14 @@ def test_normalise_runner_output_rejects_incomplete_tuple():
         normalise_runner_output(payload)
 
 
+def test_normalise_runner_output_requires_application_region():
+    histogram = _build_histogram()
+    payload = {("observable", "chan", None, "Sample", "nominal"): histogram}
+
+    with pytest.raises(ValueError):
+        normalise_runner_output(payload)
+
+
 def test_materialise_tuple_dict_validates_keys():
     histogram = _build_histogram()
     invalid_payload = {("var", "ch", "app", "sample"): histogram}

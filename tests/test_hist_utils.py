@@ -102,6 +102,18 @@ def test_get_hist_from_pkl_rejects_short_tuple(tmp_path):
         get_hist_from_pkl(str(destination))
 
 
+def test_get_hist_from_pkl_requires_application_region(tmp_path):
+    full = _make_hist(True)
+    payload = {("obs", "chan", None, "sample", "nominal"): {"hist": pickle.dumps(full)}}
+    destination = tmp_path / "missing_application.pkl.gz"
+
+    with gzip.open(destination, "wb") as fout:
+        cloudpickle.dump(payload, fout)
+
+    with pytest.raises(ValueError):
+        get_hist_from_pkl(str(destination))
+
+
 def test_get_hist_from_pkl_legacy_warning(tmp_path):
     legacy = _make_hist(True)
     output = tmp_path / "legacy_hist"

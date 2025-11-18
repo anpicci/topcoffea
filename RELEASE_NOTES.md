@@ -8,6 +8,7 @@
 
 ### Histogram payloads
 - Tuple-keyed histogram pickles now require five-element `(variable, channel, application, sample, systematic)` identifiers. Loader and writer utilities raise on legacy 4-tuples to ensure the application-region element is always recorded.
+- HistEFT pickle helpers now error when the application-region entry is missing or `None`, removing the legacy fallback that silently permitted ambiguous tuple layouts.
 
 ## ch_update_calcoffea
 
