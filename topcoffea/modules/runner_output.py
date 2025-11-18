@@ -27,11 +27,16 @@ except Exception:  # pragma: no cover - fallback when HistEFT is unavailable
 TupleKey = Tuple[
     str,
     Optional[str],
-    Optional[str],
+    str,
     Optional[str],
     Optional[str],
 ]
-"""Tuple identifier for histogram entries."""
+"""Tuple identifier for histogram entries.
+
+The application-region entry is mandatory to avoid ambiguous 4-tuple layouts
+from legacy pickles. Other positions remain optional so existing callers can
+explicitly pass ``None`` when no channel/sample/systematic is applicable.
+"""
 
 _TUPLE_FORMAT = "(variable, channel, application, sample, systematic)"
 """Human-readable description of the required tuple layout."""
@@ -82,6 +87,12 @@ def _validate_tuple_key(key: TupleKey) -> TupleKey:
     if len(key) != 5:
         raise ValueError(
             f"Histogram accumulator keys must be 5-tuples of {_TUPLE_FORMAT}."
+        )
+    application = key[2]
+    if application is None:
+        raise ValueError(
+            "Histogram accumulator keys must include an application-region entry; "
+            "use a string such as 'isSR', 'isCR', or 'nominal' instead of None."
         )
     return key
 
