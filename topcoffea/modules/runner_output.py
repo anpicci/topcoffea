@@ -33,6 +33,9 @@ TupleKey = Tuple[
 ]
 """Tuple identifier for histogram entries."""
 
+_TUPLE_FORMAT = "(variable, channel, application, sample, systematic)"
+"""Human-readable description of the required tuple layout."""
+
 SUMMARY_KEY = "__tuple_summary__"
 """Optional key holding histogram summaries for tuple entries."""
 
@@ -71,6 +74,16 @@ def _tuple_sort_key(key: TupleKey) -> Tuple[Any, ...]:
         )
 
     return tuple(ordered_parts)
+
+
+def _validate_tuple_key(key: TupleKey) -> TupleKey:
+    """Ensure *key* follows the five-element tuple schema."""
+
+    if len(key) != 5:
+        raise ValueError(
+            f"Histogram accumulator keys must be 5-tuples of {_TUPLE_FORMAT}."
+        )
+    return key
 
 
 def _summarise_histogram(histogram: Any) -> Dict[str, Any]:
@@ -122,12 +135,7 @@ def materialise_tuple_dict(
     for key, histogram in hist_store.items():
         if not isinstance(key, tuple):
             continue
-        if len(key) != 5:
-            raise ValueError(
-                "Histogram accumulator keys must be 5-tuples of "
-                "(variable, channel, application, sample, systematic)."
-            )
-        tuple_entries.append((key, histogram))
+        tuple_entries.append((_validate_tuple_key(key), histogram))
 
     ordered_items = []
     for key, histogram in sorted(tuple_entries, key=lambda item: _tuple_sort_key(item[0])):
@@ -142,8 +150,8 @@ def _tuple_entries(payload: Mapping[Any, Any]) -> Dict[TupleKey, Any]:
 
     result: Dict[TupleKey, Any] = {}
     for key, value in payload.items():
-        if isinstance(key, tuple) and len(key) == 5 and _hist_like(value):
-            result[key] = value
+        if isinstance(key, tuple) and _hist_like(value):
+            result[_validate_tuple_key(key)] = value
     return result
 
 
@@ -189,14 +197,11 @@ def tuple_dict_stats(tuple_dict: Mapping[Any, Any]) -> Tuple[int, int]:
             summaries = candidate  # type: ignore[assignment]
 
     if summaries is None:
-        summaries = OrderedDict(
-            (
-                key,
-                _summarise_histogram(value),
-            )
-            for key, value in tuple_dict.items()
-            if isinstance(key, tuple) and _hist_like(value)
-        )
+        summaries = OrderedDict()
+        for key, value in tuple_dict.items():
+            if isinstance(key, tuple) and _hist_like(value):
+                validated_key = _validate_tuple_key(key)
+                summaries[validated_key] = _summarise_histogram(value)
 
     for summary in summaries.values():
         values = summary.get("values")

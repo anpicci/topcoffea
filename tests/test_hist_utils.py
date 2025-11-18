@@ -1,5 +1,8 @@
+import gzip
 from pathlib import Path
 import pickle
+
+import cloudpickle
 
 import pytest
 
@@ -48,39 +51,55 @@ def _make_hist(fill: bool) -> hist.Hist:
     return h
 
 
+HIST_KEY_FILLED = ("obs", "chan", "app", "sample", "nominal")
+HIST_KEY_EMPTY = ("obs", "chan", "app", "sample", "empty")
+
+
 def test_get_hist_from_pkl_tuple_keys_lazy(tmp_path):
     full = _make_hist(True)
     empty = _make_hist(False)
     payload = {
-        ("sample", "nominal"): {"hist": pickle.dumps(full), "empty": full.empty()},
-        ("sample", "empty"): {"hist": pickle.dumps(empty), "empty": empty.empty()},
+        HIST_KEY_FILLED: {"hist": pickle.dumps(full), "empty": full.empty()},
+        HIST_KEY_EMPTY: {"hist": pickle.dumps(empty), "empty": empty.empty()},
     }
     output = tmp_path / "tuple_hist"
     dump_to_pkl(str(output), payload)
     stored = Path(str(output) + ".pkl.gz")
 
     lazy_loaded = get_hist_from_pkl(str(stored), materialize=False)
-    assert isinstance(lazy_loaded[("sample", "nominal")], LazyHist)
-    assert lazy_loaded[("sample", "nominal")].sum() == full.sum()
-    assert lazy_loaded[("sample", "empty")].empty()
+    assert isinstance(lazy_loaded[HIST_KEY_FILLED], LazyHist)
+    assert lazy_loaded[HIST_KEY_FILLED].sum() == full.sum()
+    assert lazy_loaded[HIST_KEY_EMPTY].empty()
 
     filtered_lazy = get_hist_from_pkl(str(stored), allow_empty=False, materialize=False)
-    assert ("sample", "empty") not in filtered_lazy
+    assert HIST_KEY_EMPTY not in filtered_lazy
 
     eager = get_hist_from_pkl(str(stored), allow_empty=False, materialize=True)
-    assert isinstance(eager[("sample", "nominal")], hist.Hist)
+    assert isinstance(eager[HIST_KEY_FILLED], hist.Hist)
 
 
 def test_get_hist_from_pkl_tuple_keys_hist_payload(tmp_path):
     full = _make_hist(True)
-    payload = {("sample", "nominal"): full}
+    payload = {HIST_KEY_FILLED: full}
     output = tmp_path / "tuple_hist_direct"
     dump_to_pkl(str(output), payload)
     stored = Path(str(output) + ".pkl.gz")
 
     loaded = get_hist_from_pkl(str(stored))
-    assert isinstance(loaded[("sample", "nominal")], hist.Hist)
-    assert loaded[("sample", "nominal")].sum() == full.sum()
+    assert isinstance(loaded[HIST_KEY_FILLED], hist.Hist)
+    assert loaded[HIST_KEY_FILLED].sum() == full.sum()
+
+
+def test_get_hist_from_pkl_rejects_short_tuple(tmp_path):
+    full = _make_hist(True)
+    payload = {("obs", "chan", "sample", "nominal"): {"hist": pickle.dumps(full)}}
+    destination = tmp_path / "invalid.pkl.gz"
+
+    with gzip.open(destination, "wb") as fout:
+        cloudpickle.dump(payload, fout)
+
+    with pytest.raises(ValueError):
+        get_hist_from_pkl(str(destination))
 
 
 def test_get_hist_from_pkl_legacy_warning(tmp_path):

@@ -19,4 +19,6 @@ utilities automatically when writing pickle artifacts. Pickles remain
 structured as ``{tuple_key: HistEFT|Hist, ...}`` mappings—the tuple ordering is
 the only change. Downstream code can keep consuming the histogram objects
 directly while relying on deterministic tuple ordering for reproducible
-artefacts.
+artefacts. Loader utilities validate tuple keys and will raise if a histogram
+entry omits the application-region element; downstream consumers should update
+any legacy 4-tuples to the five-element schema above.
