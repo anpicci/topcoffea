@@ -184,6 +184,13 @@ def get_hist_from_pkl(
     if not any(isinstance(k, tuple) for k in mapping):
         _warn_for_legacy_categorical(mapping)
 
+    for key, value in mapping.items():
+        if isinstance(key, tuple) and _is_hist_payload(value) and len(key) != 5:
+            raise ValueError(
+                "Histogram pickle keys must be 5-tuples of "
+                "(variable, channel, application, sample, systematic)."
+            )
+
     result: Dict = {}
     for key, value in mapping.items():
         if _is_hist_payload(value):

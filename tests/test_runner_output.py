@@ -51,6 +51,14 @@ def test_normalise_runner_output_preserves_tuple_keys(tmp_path):
     assert restored["metadata"] == {"note": "retained"}
 
 
+def test_normalise_runner_output_rejects_incomplete_tuple():
+    histogram = _build_histogram()
+    payload = {("observable", "chan", "Sample", "nominal"): histogram}
+
+    with pytest.raises(ValueError):
+        normalise_runner_output(payload)
+
+
 def test_materialise_tuple_dict_validates_keys():
     histogram = _build_histogram()
     invalid_payload = {("var", "ch", "app", "sample"): histogram}
