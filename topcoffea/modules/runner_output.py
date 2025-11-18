@@ -80,15 +80,10 @@ def _summarise_histogram(histogram: Any) -> Dict[str, Any]:
     variances: Optional[np.ndarray] = None
 
     if HistEFT is not None and isinstance(histogram, HistEFT):
-        entries = histogram.values(sumw2=True)
-        for payload in entries.values():
-            if isinstance(payload, tuple):
-                current_values = _ensure_numpy(payload[0])
-                raw_variances = payload[1]
-                current_variances = None if raw_variances is None else _ensure_numpy(raw_variances)
-            else:
-                current_values = _ensure_numpy(payload)
-                current_variances = None
+        for dense_hist in getattr(histogram, "_dense_hists", {}).values():
+            current_values = _ensure_numpy(dense_hist.values(flow=True))
+            raw_variances = dense_hist.variances(flow=True)
+            current_variances = None if raw_variances is None else _ensure_numpy(raw_variances)
 
             values = current_values if values is None else values + current_values
             if current_variances is None:
