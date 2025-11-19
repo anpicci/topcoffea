@@ -96,6 +96,10 @@ if HAS_STREAMING_SUPPORT:
         def _consume_pickle(self):
             try:
                 self._run()
+                if self._root_dict is None:
+                    raise UnpicklingError(
+                        "Histogram pickle did not contain a dictionary"
+                    )
             except Exception as exc:  # pragma: no cover - propagated to caller
                 self._worker_exc = exc
             finally:

@@ -8,6 +8,7 @@ import unittest
 
 from topcoffea.modules import hist_utils as hist_utils_module
 from topcoffea.modules.utils import get_hist_from_pkl
+from pickle import UnpicklingError
 
 HAS_STREAMING_SUPPORT = hist_utils_module.HAS_STREAMING_SUPPORT
 iterate_hist_from_pkl = hist_utils_module.iterate_hist_from_pkl
@@ -139,6 +140,21 @@ class HistUtilsStreamingTests(unittest.TestCase):
             0,
             "Streaming unpickler continued reading after cancellation",
         )
+
+
+class HistUtilsValidationTests(unittest.TestCase):
+    def test_iterate_hist_from_pkl_rejects_non_dict(self):
+        fd, raw_path = tempfile.mkstemp(suffix=".pkl.gz")
+        os.close(fd)
+        path = raw_path
+        try:
+            with gzip.open(path, "wb") as fout:
+                pickle.dump([1, 2, 3], fout)
+
+            with self.assertRaises(UnpicklingError):
+                iterate_hist_from_pkl(path, materialize=True)
+        finally:
+            os.remove(path)
 
 
 if __name__ == "__main__":
