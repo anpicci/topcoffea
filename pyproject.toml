@@ -33,6 +33,7 @@ dependencies = [
 [project.urls]
 Homepage = "https://github.com/TopEFT/topcoffea"
 Repository = "https://github.com/TopEFT/topcoffea"
+Issues = "https://github.com/TopEFT/topcoffea/issues"
 
 [tool.setuptools]
 include-package-data = true
