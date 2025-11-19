@@ -26,8 +26,6 @@ default_modules = {
         "channels": ["conda-forge"],
         "packages": [
             f"python={py_version}",
-            "awkward=2.8.7",
-            "coffea=2025.7.3",
             "numpy",
             "ndcctools>=7.14.11",
             "pip",
@@ -35,10 +33,14 @@ default_modules = {
             "conda-pack",
             "dill",
             "xrootd",
-            "setuptools=80.9.0",
+            "setuptools>=72",
         ],
     },
-    "pip": ["topcoffea"],
+    "pip": [
+        "coffea==2025.7.3",
+        "awkward==2.8.7",
+        "topcoffea",
+    ],
 }
 
 pip_local_to_watch = {

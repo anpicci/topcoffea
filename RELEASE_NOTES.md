@@ -4,8 +4,8 @@
 
 ### Infrastructure
 - Standardised remote environment cache naming via `topcoffea.modules.env_cache` so helper scripts shared with `topeft` build tarballs like `env_spec_<spec-hash>_edit_<editable-hash>.tar.gz` and rely on a single source for the format.
-- Replaced the legacy `coffea-env` specification with the shared `coffea20250703` environment (`python 3.13`, `coffea==2025.7.3`, `awkward==2.8.7`, `ndcctools>=7.14.11`, `setuptools=80.9.0`). Downstream projects must rebuild cached worker tarballs via `python -m topcoffea.modules.remote_environment` so TaskVine workers and CI both pick up the refreshed toolchain.
-- CI now runs a dedicated Conda smoke test (`conda env create -f environment.yml && conda run -n coffea20250703 python -c "import topcoffea"`) to catch environment regressions before they reach downstream repositories.
+- Replaced the legacy `coffea-env` specification with the shared `coffea20250703` environment (`python 3.13`, `coffea==2025.7.3`, `awkward==2.8.7`, `ndcctools>=7.14.11`, `setuptools>=72`). Downstream projects must rebuild cached worker tarballs via `python -m topcoffea.modules.remote_environment` so TaskVine workers and CI both pick up the refreshed toolchain.
+- CI now runs a dedicated Conda smoke test of the README snippet (`conda env create -f environment.yml && conda run -n coffea20250703 pip install -e . && conda run -n coffea20250703 python -c "import topcoffea"`) to catch environment regressions before they reach downstream repositories.
 
 ### Histogram payloads
 - Tuple-keyed histogram pickles now require five-element `(variable, channel, application, sample, systematic)` identifiers. Loader and writer utilities raise on legacy 4-tuples to ensure the application-region element is always recorded.

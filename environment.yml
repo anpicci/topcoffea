@@ -7,7 +7,7 @@ dependencies:
   - conda-pack
   - ndcctools>=7.14.11
   - xrootd
-  - setuptools=80.9.0
+  - setuptools>=72
   - numpy
   - dill
   - git

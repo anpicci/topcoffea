@@ -160,3 +160,19 @@ jobs:
           conda run -n coffea20250703 pip install -e .
           conda run -n coffea20250703 python -c "import topcoffea"
 
+  Check-conda-doc-snippet:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Add conda to system path
+        run: |
+          echo $CONDA/bin >> $GITHUB_PATH
+
+      - name: README conda snippet
+        run: |
+          conda env create -f environment.yml
+          conda run -n coffea20250703 pip install -e .
+          conda run -n coffea20250703 python -c "import topcoffea"
+
