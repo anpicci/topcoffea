@@ -232,16 +232,11 @@ def iterate_histograms_from_pkl(
 ) -> Iterator[Tuple[str, LazyHist]]:
     """Yield ``(key, LazyHist)`` pairs for the histograms stored in *path_to_pkl*."""
 
-    for key, hist in _iterate_hist_entries(path_to_pkl, allow_empty=True):
+    for key, hist in _iterate_hist_entries(
+        path_to_pkl, allow_empty=allow_empty
+    ):
         lazy = LazyHist.from_hist(hist)
         del hist
-        if allow_empty:
-            yield key, lazy
-            continue
-        if lazy.empty():
-            lazy.release()
-            continue
-        lazy.release()
         yield key, lazy
 
 
@@ -261,13 +256,7 @@ def iterate_hist_from_pkl(
             )
         materialize = normalized == "eager"
 
-    def _materialized_iter():
-        for key, lazy_hist in iterate_histograms_from_pkl(
-            path_to_pkl, allow_empty=allow_empty
-        ):
-            yield key, lazy_hist.materialize()
-
-    iterator = _materialized_iter()
+    iterator = _iterate_hist_entries(path_to_pkl, allow_empty=allow_empty)
     if materialize:
         return {key: hist for key, hist in iterator}
     return iterator
