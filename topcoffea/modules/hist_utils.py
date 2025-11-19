@@ -119,6 +119,8 @@ if HAS_STREAMING_SUPPORT:
             dispatch = self.dispatch
             try:
                 while True:
+                    if self._stop_event.is_set():
+                        return
                     key = read(1)
                     if not key:
                         raise EOFError

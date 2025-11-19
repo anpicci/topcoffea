@@ -1,12 +1,20 @@
 import gc
 import gzip
+import io
 import os
 import pickle
 import tempfile
 import unittest
 
-from topcoffea.modules.hist_utils import HAS_STREAMING_SUPPORT, iterate_hist_from_pkl
+from topcoffea.modules import hist_utils as hist_utils_module
 from topcoffea.modules.utils import get_hist_from_pkl
+
+HAS_STREAMING_SUPPORT = hist_utils_module.HAS_STREAMING_SUPPORT
+iterate_hist_from_pkl = hist_utils_module.iterate_hist_from_pkl
+if HAS_STREAMING_SUPPORT:
+    _StreamingHistUnpickler = hist_utils_module._StreamingHistUnpickler
+else:  # pragma: no cover - exercised when streaming helpers unavailable
+    _StreamingHistUnpickler = None
 
 
 class TrackingHist:
@@ -39,6 +47,22 @@ class TrackingHist:
 class AlwaysEmptyHist:
     def empty(self):
         return True
+
+
+if HAS_STREAMING_SUPPORT:
+
+    class _StopAwareBytesIO(io.BytesIO):
+        """Bytes buffer that records reads performed after stop is requested."""
+
+        def __init__(self, payload: bytes):
+            super().__init__(payload)
+            self.stop_event = None
+            self.read_after_stop = 0
+
+        def read(self, size: int = -1) -> bytes:  # pragma: no cover - used indirectly
+            if self.stop_event is not None and self.stop_event.is_set():
+                self.read_after_stop += 1
+            return super().read(size)
 
 
 def _write_hist_file(mapping):
@@ -99,6 +123,22 @@ class HistUtilsStreamingTests(unittest.TestCase):
             self.assertEqual(utils_filtered.keys(), filtered.keys())
         finally:
             os.remove(path)
+
+    def test_streaming_iterator_stops_after_close(self):
+        payload = pickle.dumps({f"hist_{i}": i for i in range(5)}, protocol=pickle.HIGHEST_PROTOCOL)
+        backing = _StopAwareBytesIO(payload)
+        streamer = _StreamingHistUnpickler(backing)
+        backing.stop_event = streamer._stop_event
+
+        iterator = streamer.iterate()
+        next(iterator)
+        iterator.close()
+
+        self.assertEqual(
+            backing.read_after_stop,
+            0,
+            "Streaming unpickler continued reading after cancellation",
+        )
 
 
 if __name__ == "__main__":
