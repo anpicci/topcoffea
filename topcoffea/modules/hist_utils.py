@@ -3,20 +3,23 @@
 from __future__ import annotations
 
 import gzip
+import pickle
 import queue
 import threading
 from typing import Dict, Iterator, Tuple, Union
 
-from pickle import (
-    DICT,
-    EMPTY_DICT,
-    _Stop,
-    _Unframer,
-    _Unpickler,
-    UnpicklingError,
-)
+from pickle import UnpicklingError
 
-__all__ = ["get_hist_dict_non_empty", "iterate_hist_from_pkl"]
+try:  # pragma: no cover - exercised via versioned environments
+    from pickle import DICT, EMPTY_DICT, _Stop, _Unframer, _Unpickler
+except ImportError:  # Python < 3.11 lacks the streaming helpers
+    _STREAMING_SUPPORT = False
+else:
+    _STREAMING_SUPPORT = True
+
+HAS_STREAMING_SUPPORT = _STREAMING_SUPPORT
+
+__all__ = ["HAS_STREAMING_SUPPORT", "get_hist_dict_non_empty", "iterate_hist_from_pkl"]
 
 
 def get_hist_dict_non_empty(h: Dict[str, object]) -> Dict[str, object]:
@@ -41,109 +44,113 @@ class _StreamingHistDict(dict):
 _QUEUE_END = object()
 
 
-class _StreamingHistUnpickler(_Unpickler):
-    """Unpickler that emits items as the top-level histogram dict is filled."""
+if HAS_STREAMING_SUPPORT:
 
-    dispatch = _Unpickler.dispatch.copy()
+    class _StreamingHistUnpickler(_Unpickler):
+        """Unpickler that emits items as the top-level histogram dict is filled."""
 
-    def __init__(self, file, *, allow_empty=True, **kwargs):
-        super().__init__(file, **kwargs)
-        self._allow_empty = allow_empty
-        self._root_dict = None
-        self._queue: "queue.Queue[Tuple[str, object] | object]" = queue.Queue(maxsize=1)
-        self._stop_event = threading.Event()
-        self._worker_exc: Exception | None = None
+        dispatch = _Unpickler.dispatch.copy()
 
-    def _should_emit(self, hist) -> bool:
-        if self._allow_empty:
-            return True
-        return not _is_hist_empty(hist)
-
-    def _emit(self, key, hist):
-        if self._should_emit(hist):
-            self._push_queue((key, hist))
-
-    def iterate(self) -> Iterator[Tuple[str, object]]:
-        worker = threading.Thread(target=self._consume_pickle, daemon=True)
-        worker.start()
-        try:
-            while True:
-                item = self._queue.get()
-                if item is _QUEUE_END:
-                    if self._worker_exc is not None:
-                        raise self._worker_exc
-                    return
-                yield item  # type: ignore[misc]
-        finally:
-            self._stop_event.set()
-            worker.join()
-
-    def _push_queue(self, value):
-        while not self._stop_event.is_set():
-            try:
-                self._queue.put(value, timeout=0.1)
-                return
-            except queue.Full:
-                continue
-
-    def _consume_pickle(self):
-        try:
-            self._run()
-        except Exception as exc:  # pragma: no cover - propagated to caller
-            self._worker_exc = exc
-        finally:
-            self._push_queue(_QUEUE_END)
-
-    def _run(self):
-        if not hasattr(self, "_file_read"):
-            raise UnpicklingError(
-                "Unpickler.__init__() was not called by %s.__init__()"
-                % (self.__class__.__name__,)
+        def __init__(self, file, *, allow_empty=True, **kwargs):
+            super().__init__(file, **kwargs)
+            self._allow_empty = allow_empty
+            self._root_dict = None
+            self._queue: "queue.Queue[Tuple[str, object] | object]" = queue.Queue(
+                maxsize=1
             )
-        self._unframer = _Unframer(self._file_read, self._file_readline)
-        self.read = self._unframer.read
-        self.readinto = self._unframer.readinto
-        self.readline = self._unframer.readline
-        self.metastack = []
-        self.stack = []
-        self.append = self.stack.append
-        self.proto = 0
-        read = self.read
-        dispatch = self.dispatch
-        try:
-            while True:
-                key = read(1)
-                if not key:
-                    raise EOFError
-                dispatch[key[0]](self)
-        except _Stop:
-            return
+            self._stop_event = threading.Event()
+            self._worker_exc: Exception | None = None
 
-    def _is_root_context(self) -> bool:
-        return self._root_dict is None and not self.stack and not self.metastack
+        def _should_emit(self, hist) -> bool:
+            if self._allow_empty:
+                return True
+            return not _is_hist_empty(hist)
 
-    def load_empty_dictionary(self):  # type: ignore[override]
-        if self._is_root_context():
-            root = _StreamingHistDict(self._emit)
-            self._root_dict = root
-            self.append(root)
-        else:
-            super().load_empty_dictionary()
+        def _emit(self, key, hist):
+            if self._should_emit(hist):
+                self._push_queue((key, hist))
 
-    dispatch[EMPTY_DICT[0]] = load_empty_dictionary
+        def iterate(self) -> Iterator[Tuple[str, object]]:
+            worker = threading.Thread(target=self._consume_pickle, daemon=True)
+            worker.start()
+            try:
+                while True:
+                    item = self._queue.get()
+                    if item is _QUEUE_END:
+                        if self._worker_exc is not None:
+                            raise self._worker_exc
+                        return
+                    yield item  # type: ignore[misc]
+            finally:
+                self._stop_event.set()
+                worker.join()
 
-    def load_dict(self):  # type: ignore[override]
-        if self._is_root_context():
-            items = self.pop_mark()
-            root = _StreamingHistDict(self._emit)
-            self._root_dict = root
-            self.append(root)
-            for i in range(0, len(items), 2):
-                root[items[i]] = items[i + 1]
-        else:
-            super().load_dict()
+        def _push_queue(self, value):
+            while not self._stop_event.is_set():
+                try:
+                    self._queue.put(value, timeout=0.1)
+                    return
+                except queue.Full:
+                    continue
 
-    dispatch[DICT[0]] = load_dict
+        def _consume_pickle(self):
+            try:
+                self._run()
+            except Exception as exc:  # pragma: no cover - propagated to caller
+                self._worker_exc = exc
+            finally:
+                self._push_queue(_QUEUE_END)
+
+        def _run(self):
+            if not hasattr(self, "_file_read"):
+                raise UnpicklingError(
+                    "Unpickler.__init__() was not called by %s.__init__()"
+                    % (self.__class__.__name__,)
+                )
+            self._unframer = _Unframer(self._file_read, self._file_readline)
+            self.read = self._unframer.read
+            self.readinto = self._unframer.readinto
+            self.readline = self._unframer.readline
+            self.metastack = []
+            self.stack = []
+            self.append = self.stack.append
+            self.proto = 0
+            read = self.read
+            dispatch = self.dispatch
+            try:
+                while True:
+                    key = read(1)
+                    if not key:
+                        raise EOFError
+                    dispatch[key[0]](self)
+            except _Stop:
+                return
+
+        def _is_root_context(self) -> bool:
+            return self._root_dict is None and not self.stack and not self.metastack
+
+        def load_empty_dictionary(self):  # type: ignore[override]
+            if self._is_root_context():
+                root = _StreamingHistDict(self._emit)
+                self._root_dict = root
+                self.append(root)
+            else:
+                super().load_empty_dictionary()
+
+        dispatch[EMPTY_DICT[0]] = load_empty_dictionary
+
+        def load_dict(self):  # type: ignore[override]
+            if self._is_root_context():
+                items = self.pop_mark()
+                root = _StreamingHistDict(self._emit)
+                self._root_dict = root
+                self.append(root)
+                for i in range(0, len(items), 2):
+                    root[items[i]] = items[i + 1]
+            else:
+                super().load_dict()
+
+        dispatch[DICT[0]] = load_dict
 
 
 def _is_hist_empty(hist: object) -> bool:
@@ -188,8 +195,18 @@ def iterate_hist_from_pkl(
 
     def _entry_iter():
         with gzip.open(path_to_pkl, "rb") as fin:
-            streamer = _StreamingHistUnpickler(fin, allow_empty=allow_empty)
-            yield from streamer.iterate()
+            if HAS_STREAMING_SUPPORT:
+                streamer = _StreamingHistUnpickler(fin, allow_empty=allow_empty)
+                yield from streamer.iterate()
+            else:
+                mapping = pickle.load(fin)
+                if not isinstance(mapping, dict):
+                    raise UnpicklingError(
+                        "Histogram pickle did not contain a dictionary"
+                    )
+                for key, hist in mapping.items():
+                    if allow_empty or not _is_hist_empty(hist):
+                        yield key, hist
 
     if materialize:
         return {key: hist for key, hist in _entry_iter()}

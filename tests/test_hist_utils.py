@@ -5,7 +5,7 @@ import pickle
 import tempfile
 import unittest
 
-from topcoffea.modules.hist_utils import iterate_hist_from_pkl
+from topcoffea.modules.hist_utils import HAS_STREAMING_SUPPORT, iterate_hist_from_pkl
 from topcoffea.modules.utils import get_hist_from_pkl
 
 
@@ -50,6 +50,9 @@ def _write_hist_file(mapping):
     return path
 
 
+@unittest.skipUnless(
+    HAS_STREAMING_SUPPORT, "Streaming iterator requires Python 3.11+"
+)
 class HistUtilsStreamingTests(unittest.TestCase):
     def test_iterate_hist_from_pkl_streams(self):
         payloads = {f"hist_{i}": TrackingHist(i) for i in range(3)}
