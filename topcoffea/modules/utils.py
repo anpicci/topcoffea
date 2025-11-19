@@ -2,11 +2,23 @@ import os
 import re
 import json
 import gzip
-import cloudpickle
-import uproot
+import pickle
+
+try:  # pragma: no cover - exercised when cloudpickle is unavailable
+    import cloudpickle
+except ModuleNotFoundError:  # pragma: no cover - minimal environments
+    cloudpickle = pickle  # type: ignore[assignment]
+try:  # pragma: no cover - uproot is optional for histogram helpers
+    import uproot
+except ModuleNotFoundError:  # pragma: no cover - allow tests without uproot
+    uproot = None  # type: ignore[assignment]
 import time
 
-from .hist_utils import get_hist_dict_non_empty, iterate_hist_from_pkl
+from .hist_utils import (
+    get_hist_dict_non_empty,
+    iterate_hist_from_pkl,
+    iterate_histograms_from_pkl,
+)
 
 
 pjoin = os.path.join
