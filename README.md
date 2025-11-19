@@ -14,6 +14,31 @@ remote cache.  Rebuild the cached worker tarball with
 `python -m topcoffea.modules.remote_environment` after pulling these changes so
 downstream workflows pick up the refreshed pins.
 
+## Using `topcoffea` from downstream projects
+
+Projects such as [`topeft`](https://github.com/TopEFT/topeft) expect that the
+plain namespace import (`import topcoffea`) succeeds without extra
+`PYTHONPATH` tweaks. When testing a feature branch together with `topeft`, make
+sure the branch is installed in the environment that runs the analysis:
+
+```bash
+# Option 1: install directly from GitHub
+python -m pip install --upgrade pip
+python -m pip install "git+https://github.com/TopEFT/topcoffea.git@<branch>"
+
+# Option 2: editable install from a local checkout
+git clone https://github.com/TopEFT/topcoffea.git
+cd topcoffea
+git checkout <branch>
+python -m pip install -e .
+
+# Smoke test to confirm the namespace import works for downstream users
+python -c "import topcoffea"
+```
+
+Running the smoke test mirrors the CI check and guarantees that modules such as
+`topcoffea.modules.utils` can be imported by downstream repositories.
+
 
 
 ## Documentation

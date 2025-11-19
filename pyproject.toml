@@ -1,0 +1,60 @@
+[build-system]
+requires = [
+    "setuptools>=69",
+    "wheel",
+]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "topcoffea"
+version = "0.0.0"
+description = "Framework and tools that sit on top of coffea to facilitate analyses"
+readme = "README.md"
+requires-python = ">=3.9"
+authors = [
+    { name = "CMS TopEFT Group" },
+]
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Operating System :: OS Independent",
+]
+dependencies = [
+    "boost-histogram>=1.4",
+    "coffea>=2025.7.3",
+    "dill",
+    "hist>=2.9",
+    "numpy>=2.0",
+    "pyyaml",
+]
+
+[project.urls]
+Homepage = "https://github.com/LLCMS/topcoffea"
+
+[tool.setuptools]
+include-package-data = true
+
+[tool.setuptools.packages.find]
+include = [
+    "topcoffea*",
+]
+
+[tool.setuptools.package-data]
+topcoffea = [
+    "params/*",
+    "data/fromTTH/fakerate/*.root",
+    "data/leptonSF/*/*.root",
+    "data/leptonSF/*/*.json",
+    "data/photonSF/*.root",
+    "data/JEC/*.txt",
+    "data/JER/*.txt",
+    "data/pileup/*.root",
+    "data/MuonScale/*txt",
+    "data/goldenJsons/*.txt",
+    "data/TauSF/*.json",
+    "data/topmva/lepid_weights/*.bin",
+    "data/btag_sf_correctionlib/*json",
+    "data/POG/*/*/*json.gz",
+]
