@@ -13,6 +13,26 @@ Examples of analysis repositories making use of `topcoffea`:
 * [`topeft`](https://github.com/TopEFT/topeft): EFT analyses in the top sector.
 * [`ewkcoffea`](): Multi boson analyses.
 
+## Accessing package resources
+
+Data files, JSON payloads, and other resources that live inside the
+`topcoffea` python package should always be opened via
+`topcoffea.modules.paths.topcoffea_path`.  This helper resolves files relative
+to the installed package directory (using `importlib.resources`) so the correct
+path is returned even when the repository is nested inside another checkout or
+installed as a dependency of a larger project.
+
+```python
+from topcoffea.modules.paths import topcoffea_path
+
+with open(topcoffea_path("params/params.json")) as handle:
+    cfg = json.load(handle)
+```
+
+Downstream projects should treat the returned path as read-only package data
+and avoid constructing relative paths by hand (for example `../data/...`) so
+they always inherit the correct behaviour.
+
 ## Streaming histogram pickle files
 
 Deferred workflows (such as the nonprompt scripts) often read very large
