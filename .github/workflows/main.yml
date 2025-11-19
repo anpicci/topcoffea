@@ -16,7 +16,7 @@ jobs:
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
-          python-version: '3.11'
+          python-version: '3.13'
 
       - name: Install package
         run: |
@@ -51,7 +51,7 @@ jobs:
       - uses: mamba-org/setup-micromamba@v1
         with:
           environment-file: environment.yml
-          environment-name: topcoffea-env
+          environment-name: coffea20250703
           init-shell: >-
                 bash
 
@@ -67,7 +67,7 @@ jobs:
 
       - name: Pytest setup
         run: |
-          micromamba install -y -n topcoffea-env -c conda-forge pytest
+          micromamba install -y -n coffea20250703 -c conda-forge pytest
         shell: bash -el {0}
 
       - name: Test update json
@@ -110,37 +110,53 @@ jobs:
         run: |
           conda config --set channel_priority strict
           conda config --add channels conda-forge
-          conda env create -f environment.yml -n topcoffea-env
+          conda env create -f environment.yml
 
       - name: Conda list
         run: |
-          conda list -n topcoffea-env
+          conda list -n coffea20250703
 
       - name: Install pip packages
         run: |
-          conda run -n topcoffea-env pip install -e .
+          conda run -n coffea20250703 pip install -e .
 
       - name: Smoke test namespace import
         run: |
-          conda run -n topcoffea-env python -c "import topcoffea"
+          conda run -n coffea20250703 python -c "import topcoffea"
 
       - name: Pytest setup
         run: |
-          conda install -y -n topcoffea-env -c conda-forge pytest
+          conda install -y -n coffea20250703 -c conda-forge pytest
 
       - name: Test update json
         run: |
-          conda run -n topcoffea-env pytest tests/test_update_json.py
+          conda run -n coffea20250703 pytest tests/test_update_json.py
 
       - name: Test HistEFT unit test
         run: |
-          conda run -n topcoffea-env pytest tests/test_unit.py
+          conda run -n coffea20250703 pytest tests/test_unit.py
 
       - name: Test histEFT
         run: |
-          conda run -n topcoffea-env pytest tests/test_HistEFT_add.py
+          conda run -n coffea20250703 pytest tests/test_HistEFT_add.py
 
       - name: Smoke test TaskVine CLI
         run: |
-          conda run -n topcoffea-env pytest tests/test_taskvine_cli.py -k taskvine
+          conda run -n coffea20250703 pytest tests/test_taskvine_cli.py -k taskvine
+
+  Check-conda-env:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Add conda to system path
+        run: |
+          echo $CONDA/bin >> $GITHUB_PATH
+
+      - name: Smoke test shared environment
+        run: |
+          conda env create -f environment.yml
+          conda run -n coffea20250703 pip install -e .
+          conda run -n coffea20250703 python -c "import topcoffea"
 

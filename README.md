@@ -10,12 +10,23 @@ pip install -e .
 python -c "import topcoffea; topcoffea.modules.HistEFT.HistEFT"
 ```
 
-The conda environments distributed with `topcoffea` and `topeft` now lock to
-Python 3.13 alongside `coffea==2025.7.3`, `awkward==2.8.7`,
-`ndcctools>=7.14.11`, and `setuptools=80.9.0` so local installs match the
-remote cache.  Rebuild the cached worker tarball with
-`python -m topcoffea.modules.remote_environment` after pulling these changes so
-downstream workflows pick up the refreshed pins.
+The shared `coffea20250703` Conda environment distributed with `topcoffea` and
+`topeft` now locks to Python 3.13 alongside `coffea==2025.7.3`,
+`awkward==2.8.7`, `ndcctools>=7.14.11`, and `setuptools=80.9.0` so local
+installs match the remote cache. Provision or refresh the environment with the
+commands below before running processors so downstream projects see the same
+toolchain that CI exercises:
+
+```bash
+conda env create -f environment.yml  # or: conda env update -f environment.yml --prune
+conda activate coffea20250703
+pip install -e .
+python -c "import topcoffea"
+```
+
+Rebuild the cached worker tarball with `python -m
+topcoffea.modules.remote_environment` after pulling these changes so downstream
+workflows pick up the refreshed pins.
 
 ## Using `topcoffea` from downstream projects
 
