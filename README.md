@@ -18,9 +18,9 @@ Examples of analysis repositories making use of `topcoffea`:
 Data files, JSON payloads, and other resources that live inside the
 `topcoffea` python package should always be opened via
 `topcoffea.modules.paths.topcoffea_path`.  This helper resolves files relative
-to the installed package directory (using `importlib.resources`) so the correct
-path is returned even when the repository is nested inside another checkout or
-installed as a dependency of a larger project.
+to the installed package directory so the correct path is returned even when
+the repository is nested inside another checkout or installed as a dependency
+of a larger project.
 
 ```python
 from topcoffea.modules.paths import topcoffea_path

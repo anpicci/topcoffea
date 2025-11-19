@@ -23,7 +23,7 @@ def test_topcoffea_path_handles_nested_checkout(tmp_path, monkeypatch):
     nested_repo = tmp_path / "outer" / "repo" / "src"
     nested_repo.mkdir(parents=True)
 
-    package_root = Path(current_paths._package_root())
+    package_root = Path(current_paths.topcoffea.__path__[0])
     nested_pkg = nested_repo / "topcoffea"
 
     # Mimic a checkout with an extra top-level folder by symlinking the real
