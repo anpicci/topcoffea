@@ -31,7 +31,8 @@ dependencies = [
 ]
 
 [project.urls]
-Homepage = "https://github.com/LLCMS/topcoffea"
+Homepage = "https://github.com/TopEFT/topcoffea"
+Repository = "https://github.com/TopEFT/topcoffea"
 
 [tool.setuptools]
 include-package-data = true
