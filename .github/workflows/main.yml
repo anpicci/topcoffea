@@ -7,6 +7,26 @@ on:
 
 jobs:
 
+  Install-smoke:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install package
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install .
+
+      - name: Smoke test namespace import
+        run: |
+          python -c "import topcoffea; topcoffea.modules.HistEFT.HistEFT; topcoffea.modules.utils.get_files; topcoffea.scripts.make_html.make_html"
+
   # Based on https://github.com/py-actions/flake8#quick-start
   Check-flake8-lint:
     runs-on: ubuntu-latest

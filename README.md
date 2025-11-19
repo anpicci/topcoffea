@@ -5,6 +5,9 @@ Tools that sit on top of coffea to facilitate CMS analyses. The repository is se
 git clone https://github.com/TopEFT/topcoffea.git
 cd topcoffea
 pip install -e .
+
+# Confirm the namespace import that downstream projects rely on
+python -c "import topcoffea; topcoffea.modules.HistEFT.HistEFT"
 ```
 
 The conda environments distributed with `topcoffea` and `topeft` now lock to
@@ -35,6 +38,16 @@ python -m pip install -e .
 # Smoke test to confirm the namespace import works for downstream users
 python -c "import topcoffea"
 ```
+
+Branches such as `format_update_anpicci_calcoffea` in the `topeft` repository
+require the editable install above so helpers like
+`topcoffea.modules.HistEFT` and `topcoffea.scripts.make_html` resolve via plain
+attribute access. When developing both repositories side-by-side, activate the
+environment used for `topeft`, run `pip install -e ../topcoffea` from the
+`topeft` checkout, and re-run `python -c "import topcoffea"` (optionally adding
+`topcoffea.modules.HistEFT.HistEFT` to the smoke test) before invoking the
+analysis scripts. This matches the CI installation check and guarantees that
+`import topcoffea` succeeds anywhere the sibling repository runs.
 
 Running the smoke test mirrors the CI check and guarantees that modules such as
 `topcoffea.modules.utils` can be imported by downstream repositories.
