@@ -28,10 +28,12 @@ def _create_topeft_repo(tmp_path: Path) -> Path:
 
 def test_default_modules_pins():
     conda_packages = remote_environment.DEFAULT_MODULES["conda"]["packages"]
-    assert "awkward=2.8.7" in conda_packages
-    assert "coffea=2025.7.3" in conda_packages
-    assert "setuptools=80.9.0" in conda_packages
-    assert remote_environment.DEFAULT_MODULES["pip"] == ["topcoffea"]
+    assert "setuptools>=72" in conda_packages
+    assert remote_environment.DEFAULT_MODULES["pip"] == [
+        "coffea==2025.7.3",
+        "awkward==2.8.7",
+        "topcoffea",
+    ]
 
 
 def test_pip_local_to_watch_includes_topeft():
