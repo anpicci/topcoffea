@@ -7,11 +7,18 @@ import tempfile
 import unittest
 
 from topcoffea.modules import hist_utils as hist_utils_module
-from topcoffea.modules.utils import get_hist_from_pkl
+from topcoffea.modules.utils import (
+    get_hist_from_pkl,
+    iterate_histograms_from_pkl,
+)
 from pickle import UnpicklingError
 
 HAS_STREAMING_SUPPORT = hist_utils_module.HAS_STREAMING_SUPPORT
+LazyHist = hist_utils_module.LazyHist
 iterate_hist_from_pkl = hist_utils_module.iterate_hist_from_pkl
+iterate_histograms_from_pkl_module = (
+    hist_utils_module.iterate_histograms_from_pkl
+)
 if HAS_STREAMING_SUPPORT:
     _StreamingHistUnpickler = hist_utils_module._StreamingHistUnpickler
 else:  # pragma: no cover - exercised when streaming helpers unavailable
@@ -140,6 +147,66 @@ class HistUtilsStreamingTests(unittest.TestCase):
             0,
             "Streaming unpickler continued reading after cancellation",
         )
+
+
+class HistUtilsLazyIteratorTests(unittest.TestCase):
+    def test_lazy_iterator_limits_live_histograms(self):
+        payloads = {f"hist_{i}": TrackingHist(i) for i in range(4)}
+        path = _write_hist_file(payloads)
+        payloads.clear()
+        gc.collect()
+        TrackingHist.live_instances = 0
+        TrackingHist.max_live_instances = 0
+
+        try:
+            lazies = list(iterate_histograms_from_pkl(path))
+            gc.collect()
+            self.assertEqual(TrackingHist.live_instances, 0)
+
+            seen = []
+            for key, lazy in lazies:
+                hist = lazy.materialize()
+                seen.append((key, hist.payload))
+                lazy.release()
+                del hist
+                gc.collect()
+
+            self.assertEqual([value for _, value in seen], [0, 1, 2, 3])
+            gc.collect()
+            self.assertEqual(TrackingHist.live_instances, 0)
+        finally:
+            os.remove(path)
+
+    def test_lazy_iterator_filters_empty(self):
+        mapping = {
+            "filled": TrackingHist("filled"),
+            "empty": AlwaysEmptyHist(),
+        }
+        path = _write_hist_file(mapping)
+        mapping.clear()
+        gc.collect()
+
+        try:
+            eager = list(iterate_histograms_from_pkl(path, allow_empty=False))
+            keys = [key for key, _ in eager]
+            self.assertEqual(keys, ["filled"])
+        finally:
+            os.remove(path)
+
+    def test_lazy_iterator_module_export(self):
+        mapping = {f"hist_{i}": TrackingHist(i) for i in range(2)}
+        path = _write_hist_file(mapping)
+        mapping.clear()
+        gc.collect()
+
+        try:
+            module_keys = [
+                key for key, _ in iterate_histograms_from_pkl_module(path)
+            ]
+            utils_keys = [key for key, _ in iterate_histograms_from_pkl(path)]
+            self.assertEqual(module_keys, utils_keys)
+        finally:
+            os.remove(path)
 
 
 class HistUtilsValidationTests(unittest.TestCase):

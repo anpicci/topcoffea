@@ -10,6 +10,11 @@ from typing import Dict, Iterator, Tuple, Union
 
 from pickle import UnpicklingError
 
+try:  # pragma: no cover - exercised in environments without cloudpickle
+    import cloudpickle
+except ModuleNotFoundError:  # pragma: no cover - fallback for minimal envs
+    cloudpickle = pickle  # type: ignore[assignment]
+
 try:  # pragma: no cover - exercised via versioned environments
     from pickle import DICT, EMPTY_DICT, _Stop, _Unframer, _Unpickler
 except ImportError:  # Python < 3.11 lacks the streaming helpers
@@ -19,7 +24,13 @@ else:
 
 HAS_STREAMING_SUPPORT = _STREAMING_SUPPORT
 
-__all__ = ["HAS_STREAMING_SUPPORT", "get_hist_dict_non_empty", "iterate_hist_from_pkl"]
+__all__ = [
+    "HAS_STREAMING_SUPPORT",
+    "LazyHist",
+    "get_hist_dict_non_empty",
+    "iterate_hist_from_pkl",
+    "iterate_histograms_from_pkl",
+]
 
 
 def get_hist_dict_non_empty(h: Dict[str, object]) -> Dict[str, object]:
@@ -169,27 +180,78 @@ def _is_hist_empty(hist: object) -> bool:
     return False
 
 
+class LazyHist:
+    """Wrapper that defers histogram materialization until explicitly requested."""
+
+    __slots__ = ("_payload", "_value")
+
+    def __init__(self, payload: bytes):
+        self._payload = payload
+        self._value = _QUEUE_END  # sentinel reused privately
+
+    @classmethod
+    def from_hist(cls, hist: object) -> "LazyHist":
+        payload = cloudpickle.dumps(hist, protocol=pickle.HIGHEST_PROTOCOL)
+        return cls(payload)
+
+    def materialize(self) -> object:
+        if self._value is _QUEUE_END:
+            self._value = cloudpickle.loads(self._payload)
+        return self._value
+
+    def release(self) -> None:
+        if self._value is not _QUEUE_END:
+            self._value = _QUEUE_END
+
+    def empty(self) -> bool:
+        hist = self.materialize()
+        return _is_hist_empty(hist)
+
+    def unwrap(self) -> object:
+        return self.materialize()
+
+
+def _iterate_hist_entries(
+    path_to_pkl: str, allow_empty: bool
+) -> Iterator[Tuple[str, object]]:
+    with gzip.open(path_to_pkl, "rb") as fin:
+        if HAS_STREAMING_SUPPORT:
+            streamer = _StreamingHistUnpickler(fin, allow_empty=allow_empty)
+            yield from streamer.iterate()
+        else:
+            mapping = pickle.load(fin)
+            if not isinstance(mapping, dict):
+                raise UnpicklingError("Histogram pickle did not contain a dictionary")
+            for key, hist in mapping.items():
+                if allow_empty or not _is_hist_empty(hist):
+                    yield key, hist
+
+
+def iterate_histograms_from_pkl(
+    path_to_pkl: str, *, allow_empty: bool = True
+) -> Iterator[Tuple[str, LazyHist]]:
+    """Yield ``(key, LazyHist)`` pairs for the histograms stored in *path_to_pkl*."""
+
+    for key, hist in _iterate_hist_entries(path_to_pkl, allow_empty=True):
+        lazy = LazyHist.from_hist(hist)
+        del hist
+        if allow_empty:
+            yield key, lazy
+            continue
+        if lazy.empty():
+            lazy.release()
+            continue
+        lazy.release()
+        yield key, lazy
+
+
 def iterate_hist_from_pkl(
     path_to_pkl: str,
     *,
     allow_empty: bool = True,
     materialize: Union[bool, str] = False,
 ) -> Union[Iterator[Tuple[str, object]], Dict[str, object]]:
-    """Iterate over a histogram pickle lazily or eagerly.
-
-    Parameters
-    ----------
-    path_to_pkl:
-        Path to the ``.pkl.gz`` file produced by ``dump_to_pkl``.
-    allow_empty:
-        Whether histograms whose ``empty()`` method returns ``True`` should be
-        yielded.
-    materialize:
-        When ``False`` (default) a generator is returned that streams entries
-        without holding the entire dictionary in memory.  When ``True`` or the
-        string ``"eager"`` all entries are immediately materialized into a
-        standard ``dict`` mirroring :func:`get_hist_from_pkl`.
-    """
+    """Iterate over histogram pickle entries, materializing as requested."""
 
     if isinstance(materialize, str):
         normalized = materialize.lower()
@@ -199,21 +261,13 @@ def iterate_hist_from_pkl(
             )
         materialize = normalized == "eager"
 
-    def _entry_iter():
-        with gzip.open(path_to_pkl, "rb") as fin:
-            if HAS_STREAMING_SUPPORT:
-                streamer = _StreamingHistUnpickler(fin, allow_empty=allow_empty)
-                yield from streamer.iterate()
-            else:
-                mapping = pickle.load(fin)
-                if not isinstance(mapping, dict):
-                    raise UnpicklingError(
-                        "Histogram pickle did not contain a dictionary"
-                    )
-                for key, hist in mapping.items():
-                    if allow_empty or not _is_hist_empty(hist):
-                        yield key, hist
+    def _materialized_iter():
+        for key, lazy_hist in iterate_histograms_from_pkl(
+            path_to_pkl, allow_empty=allow_empty
+        ):
+            yield key, lazy_hist.materialize()
 
+    iterator = _materialized_iter()
     if materialize:
-        return {key: hist for key, hist in _entry_iter()}
-    return _entry_iter()
+        return {key: hist for key, hist in iterator}
+    return iterator
