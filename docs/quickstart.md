@@ -35,3 +35,33 @@ This short guide summarises the minimum steps to get a development checkout of
 For TaskVine usage and datacard-generation workflows refer to the dedicated
 sections in each analysis repository, which now link back to the shared
 configuration guide.
+
+## Aligning with topeft's new entry point
+
+The refreshed `topeft` entry point (`analysis/topeft_run2/run_analysis.py` and
+its quickstart wrapper) calls back into shared `topcoffea` helpers so both
+repositories expose the same TaskVine-focused workflow. When extending the
+entry point or adding new plotting/CLI front-ends:
+
+- Reuse :func:`topcoffea.modules.executor_cli.register_executor_arguments` so the
+  TaskVine defaults (`executor=taskvine`, port range `9123-9130`, `--environment-file`
+  support) remain identical across scripts.【F:topcoffea/modules/executor_cli.py†L1-L135】
+- Normalise user-provided values with
+  :func:`topcoffea.modules.executor_cli.executor_config_from_values`; when the
+  executor resolves to TaskVine and `environment_file` is set to `auto`, the
+  helper transparently invokes
+  :func:`topcoffea.modules.remote_environment.get_environment` so editable
+  `topcoffea`/`topeft` checkouts are packaged and cached before workers start.【F:topcoffea/modules/executor_cli.py†L137-L197】【F:topcoffea/modules/remote_environment.py†L1-L101】
+- Keep TaskVine tarballs reproducible by leaving
+  :data:`topcoffea.modules.executor_cli.TASKVINE_EXTRA_PIP_LOCAL` untouched; it
+  tracks both repositories' watch paths and triggers cache rebuilds whenever the
+  entry-point code changes.【F:topcoffea/modules/executor_cli.py†L30-L60】【F:topcoffea/modules/remote_environment.py†L24-L60】
+- Emit histogram pickles through
+  :func:`topcoffea.modules.hist_utils.dump_to_pkl`, which enforces the shared
+  five-element tuple schema documented in :doc:`tuple_schema` so plotting updates
+  (e.g. the control/signal-region overlays) can consume TaskVine outputs without
+  schema-specific adapters.【F:topcoffea/modules/hist_utils.py†L34-L69】
+
+Following these conventions keeps the topeft entry points compatible with the
+TaskVine executor options, cached remote environments, and tuple-keyed pickles
+that topcoffea's utilities already validate.
