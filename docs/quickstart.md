@@ -15,10 +15,20 @@ This short guide summarises the minimum steps to get a development checkout of
 2. **Reuse the Conda environment shipped with analyses**
    The `environment.yml` file mirrors the versions baked into cached TaskVine
    environments (Python 3.13, `coffea==2025.7.3`, `awkward==2.8.7`,
-   `ndcctools>=7.14.11`, `setuptools=80.9.0`, etc.).  Create or update a Conda
-   environment with those pins before running processors, then rebuild cached
-   worker tarballs so the refreshed toolchain is distributed alongside
-   submissions.【F:README.md†L7-L14】
+   `ndcctools>=7.14.11`, `setuptools=80.9.0`, etc.) and defines the shared
+   `coffea20250703` environment.  Create or update that Conda environment before
+   running processors, then rebuild cached worker tarballs so the refreshed
+   toolchain is distributed alongside submissions:
+
+   ```bash
+   conda env create -f environment.yml  # or: conda env update -f environment.yml --prune
+   conda activate coffea20250703
+   pip install -e .
+   python -c "import topcoffea"
+   ```
+
+   The final command mirrors the CI smoke test and guarantees that downstream
+   `topeft` checkouts still resolve the namespace import.【F:README.md†L7-L28】
 
 3. **Pick an executor**
    The `RunConfig`/`ExecutorCLIConfig` dataclass lets you switch between the

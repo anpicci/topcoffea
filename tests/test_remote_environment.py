@@ -30,7 +30,7 @@ def test_default_modules_pins():
     conda_packages = remote_environment.DEFAULT_MODULES["conda"]["packages"]
     assert "awkward=2.8.7" in conda_packages
     assert "coffea=2025.7.3" in conda_packages
-    assert "setuptools==80.9.0" in conda_packages
+    assert "setuptools=80.9.0" in conda_packages
     assert remote_environment.DEFAULT_MODULES["pip"] == ["topcoffea"]
 
 
