@@ -2,10 +2,11 @@ import os
 import re
 import json
 import gzip
-import pickle
 import cloudpickle
 import uproot
 import time
+
+from .hist_utils import get_hist_dict_non_empty, iterate_hist_from_pkl
 
 
 pjoin = os.path.join
@@ -363,16 +364,11 @@ def dump_to_pkl(out_name,out_file):
     print("Done.\n")
 
 
-def get_hist_dict_non_empty(h):
-    return {k: v for k, v in h.items() if not v.empty()}
-
-
 # Get the dictionary of hists from the pkl file (e.g. that a processor outputs)
 def get_hist_from_pkl(path_to_pkl, allow_empty=True):
-    h = pickle.load(gzip.open(path_to_pkl))
-    if not allow_empty:
-        h = get_hist_dict_non_empty(h)
-    return h
+    return iterate_hist_from_pkl(
+        path_to_pkl, allow_empty=allow_empty, materialize=True
+    )
 
 
 ############## Dictionary manipulations and tools ##############
