@@ -22,7 +22,10 @@ downstream workflows pick up the refreshed pins.
 Projects such as [`topeft`](https://github.com/TopEFT/topeft) expect that the
 plain namespace import (`import topcoffea`) succeeds without extra
 `PYTHONPATH` tweaks. When testing a feature branch together with `topeft`, make
-sure the branch is installed in the environment that runs the analysis:
+sure the branch is installed in the environment that runs the analysis. See
+[the `topeft` integration guide](docs/topeft_integration.md) for branch pairing
+details when working on `ch_update_calcoffea` in `topcoffea` alongside
+`format_update_anpicci_calcoffea` in `topeft`.
 
 ```bash
 # Option 1: install directly from GitHub
@@ -62,6 +65,8 @@ Running the smoke test mirrors the CI check and guarantees that modules such as
 * [Tuple schema](docs/tuple_schema.md) – description of the
   `(variable, channel, application, sample, systematic)` histogram keys used in
   pickle outputs.
+* [`topeft` integration](docs/topeft_integration.md) – best practices for
+  coordinating `ch_update_calcoffea` with `format_update_anpicci_calcoffea`.
 
 Examples of analysis repositories making use of `topcoffea`:
 * [`topeft`](https://github.com/TopEFT/topeft): EFT analyses in the top sector.
