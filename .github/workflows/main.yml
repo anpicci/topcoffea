@@ -40,6 +40,11 @@ jobs:
           pip install -e .
         shell: micromamba-shell {0}
 
+      - name: Smoke test namespace import
+        run: |
+          python -c "import topcoffea"
+        shell: micromamba-shell {0}
+
       - name: Pytest setup
         run: |
           micromamba install -y -n topcoffea-env -c conda-forge pytest
@@ -94,6 +99,10 @@ jobs:
       - name: Install pip packages
         run: |
           conda run -n topcoffea-env pip install -e .
+
+      - name: Smoke test namespace import
+        run: |
+          conda run -n topcoffea-env python -c "import topcoffea"
 
       - name: Pytest setup
         run: |
