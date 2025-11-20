@@ -1,11 +1,21 @@
 # topcoffea
 
-Tools that sit on top of coffea to facilitate CMS analyses. The repository is set up as a pip installable package. To install this package into a conda environment: 
+Tools that sit on top of coffea to facilitate CMS analyses. The repository is set up as a pip installable package. To install this package into a conda environment:
 ```
 git clone https://github.com/TopEFT/topcoffea.git
 cd topcoffea
 pip install -e .
 ```
+
+When pairing this repository with [`topeft`](https://github.com/TopEFT/topeft), use the `run3_test_mmerged` branch of `topcoffea` alongside the `run3_test_mmerged_anpicci` branch of `topeft` to match the maintained workflow.
+
+### Side-by-side development checklist
+
+When working on `topcoffea` and `topeft` together from sibling checkouts:
+
+1. Activate the analysis environment (e.g., `conda activate <env>`).
+2. Run `pip install -e ../topcoffea` from the `topeft` checkout to ensure the editable install is picked up.
+3. Verify the import path with a quick smoke test: `python -c "import topcoffea"`.
 
 
 
@@ -31,7 +41,11 @@ with open(topcoffea_path("params/params.json")) as handle:
 
 Downstream projects should treat the returned path as read-only package data
 and avoid constructing relative paths by hand (for example `../data/...`) so
-they always inherit the correct behaviour.
+they always inherit the correct behaviour. When integrating with
+[`topeft`](https://github.com/TopEFT/topeft), the editable install performed by
+[`scripts/install_topcoffea.sh`](https://github.com/TopEFT/topeft/blob/run3_test_mmerged_anpicci/scripts/install_topcoffea.sh)
+should be allowed to supply the packaged resources—avoid keeping in-tree
+overlays that could mask the installed `topcoffea` package.
 
 ## Streaming histogram pickle files
 
