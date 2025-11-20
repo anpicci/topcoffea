@@ -47,3 +47,26 @@ the `topeft` environment before continuing.
 
 Following these steps keeps `import topcoffea` working for downstream analyses
 without requiring code edits in the `topeft` repository itself.
+
+## Avoid loading vendored copies
+
+Importing `topcoffea` from a directory nested under a `topeft` checkout (for
+example, `/path/to/topeft/topcoffea`) now raises a startup error.  This guard
+prevents stale vendored snapshots in the `topeft` tree from shadowing the real
+package.  If you see the error:
+
+```
+RuntimeError: Detected topcoffea imported from a vendored copy inside a topeft checkout...
+```
+
+remove the `topeft/topcoffea` folder and reinstall the sibling repository on the
+`ch_update_calcoffea` branch in editable mode:
+
+```bash
+rm -rf /path/to/topeft/topcoffea
+python -m pip install -e /path/to/topcoffea
+python -c "import topcoffea"
+```
+
+The import should succeed once the environment points to the standalone
+`topcoffea` checkout instead of a vendored copy.
