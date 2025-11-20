@@ -1,8 +1,11 @@
-import os
-import re
-import json
+"""General utility helpers for :mod:`topcoffea`."""
+
 import gzip
+import json
+import os
 import pickle
+import re
+import time
 
 try:  # pragma: no cover - exercised when cloudpickle is unavailable
     import cloudpickle
@@ -12,11 +15,10 @@ try:  # pragma: no cover - uproot is optional for histogram helpers
     import uproot
 except ModuleNotFoundError:  # pragma: no cover - allow tests without uproot
     uproot = None  # type: ignore[assignment]
-import time
 
 from .hist_utils import (
     get_hist_dict_non_empty,
-    iterate_hist_from_pkl,
+    iterate_hist_from_pkl as _iterate_hist_from_pkl,
     iterate_histograms_from_pkl,
 )
 
@@ -40,6 +42,22 @@ def get_pdiff(a,b,in_percent=False):
     return p
 
 ############## Strings manipulations and tools ##############
+
+# Return process names with a normalized leading token
+def canonicalize_process_name(process_name):
+    match = re.match(r"([A-Za-z]+)(.*)", process_name)
+    if not match:
+        return process_name
+
+    prefix, remainder = match.groups()
+
+    suffix_match = re.search(r"([A-Z]{2,})$", prefix)
+    if suffix_match and any(ch.islower() for ch in prefix[:suffix_match.start()]):
+        lowered = prefix[:suffix_match.start()].lower() + prefix[suffix_match.start():]
+    else:
+        lowered = prefix.lower()
+
+    return lowered + remainder
 
 # Match strings using one or more regular expressions
 def regex_match(lst,regex_lst):
@@ -131,6 +149,7 @@ def get_files(top_dir,**kwargs):
             fpath = os.path.join(root,f)
             found.append(fpath)
     return found
+
 
 # Extracts event information from a root file
 '''
@@ -376,6 +395,10 @@ def dump_to_pkl(out_name,out_file):
     print("Done.\n")
 
 
+def iterate_hist_from_pkl(*args, **kwargs):
+    return _iterate_hist_from_pkl(*args, **kwargs)
+
+
 # Get the dictionary of hists from the pkl file (e.g. that a processor outputs)
 def get_hist_from_pkl(path_to_pkl, allow_empty=True):
     return iterate_hist_from_pkl(
@@ -546,3 +569,15 @@ def get_diff_between_dicts(dict1,dict2,difftype,inpercent=False):
         ret_dict[k] = [ret_diff,ret_err]
 
     return ret_dict
+
+
+_existing_all = globals().get("__all__")
+if isinstance(_existing_all, (list, tuple)):
+    _base_exports = list(_existing_all)
+else:
+    _base_exports = [name for name in globals() if not name.startswith("_")]
+
+__all__ = [
+    *_base_exports,
+    *[name for name in globals() if not name.startswith("_") and name not in _base_exports],
+]
