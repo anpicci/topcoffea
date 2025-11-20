@@ -89,9 +89,7 @@ format.
 ## Compatibility helpers
 
 The `topcoffea.modules.hist_utils` compatibility helpers expose the shims used
-by `topeft` so other projects no longer need to vendor them separately (they
-are also re-exported from `topcoffea.modules.compat` for backwards
-compatibility):
+by `topeft` so other projects no longer need to vendor them separately:
 
 * `ensure_histEFT_py39_compat()` loads `topcoffea.modules.histEFT` with
   Python 3.9–safe type annotations when the module contains ``|`` style union

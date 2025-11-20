@@ -17,8 +17,7 @@ The `topcoffea.modules.paths.topcoffea_path` helper must be used to locate packa
 ## Compatibility helpers shared with `topeft`
 
 `topcoffea.modules.hist_utils` now ships the shims previously hosted inside
-`topeft/topeft/compat` (they remain re-exported from `topcoffea.modules.compat`
-for existing callers). Projects running on Python 3.9 should invoke
+`topeft/topeft/compat`. Projects running on Python 3.9 should invoke
 `hist_utils.ensure_histEFT_py39_compat()` before importing
 `topcoffea.modules.histEFT` to patch PEP 604 union annotations, and use
 `hist_utils.ensure_hist_utils()` when `topcoffea.modules.hist_utils` needs to be
