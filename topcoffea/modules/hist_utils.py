@@ -16,7 +16,7 @@ except ModuleNotFoundError:  # pragma: no cover - fallback for minimal envs
     cloudpickle = pickle  # type: ignore[assignment]
 
 try:  # pragma: no cover - exercised via versioned environments
-    from pickle import DICT, EMPTY_DICT, _Stop, _Unframer, _Unpickler
+    from pickle import DICT, EMPTY_DICT, _Unpickler
 except ImportError:  # Python < 3.11 lacks the streaming helpers
     _STREAMING_SUPPORT = False
 else:
@@ -117,39 +117,7 @@ if HAS_STREAMING_SUPPORT:
                 self._push_queue(_QUEUE_END)
 
         def _run(self):
-            if not hasattr(self, "_file_read"):
-                raise UnpicklingError(
-                    "Unpickler.__init__() was not called by %s.__init__()"
-                    % (self.__class__.__name__,)
-                )
-            self._unframer = _Unframer(self._file_read, self._file_readline)
-            self.read = self._unframer.read
-            self.readinto = self._unframer.readinto
-            self.readline = self._unframer.readline
-            self.metastack = []
-            self.stack = []
-            mark = self.mark
-            read = self.read
-            dispatch = self.dispatch
-            push_mark = self.push_mark
-            try:
-                while True:
-                    key = read(1)
-                    if not key:
-                        raise EOFError
-                    if key[0] == b"."[0]:
-                        return
-                    if key[0] == b"("[0]:
-                        push_mark()
-                        continue
-                    if key[0] == b"g"[0]:
-                        markobject = mark()
-                        if isinstance(markobject, tuple):
-                            key = markobject[0]
-                            self._emit(key, markobject[1])
-                    dispatch[key[0]](self)
-            except _Stop:
-                return
+            self.load()
 
         def _is_root_context(self) -> bool:
             return self._root_dict is None and not self.stack and not self.metastack
