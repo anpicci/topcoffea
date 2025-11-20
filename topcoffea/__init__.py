@@ -35,7 +35,8 @@ def _ensure_not_vendored_in_topeft(package_root: Path) -> None:
     """
 
     resolved = package_root.resolve()
-    if any(parent.name.lower() == "topeft" for parent in resolved.parents):
+    vendored_parent = resolved.parent
+    if resolved.name.lower() == "topcoffea" and vendored_parent.name.lower() == "topeft":
         raise RuntimeError(
             "Detected topcoffea imported from a vendored copy inside a topeft "
             "checkout. Please remove the embedded topeft/topcoffea directory "
