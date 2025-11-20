@@ -151,16 +151,6 @@ def get_files(top_dir,**kwargs):
     return found
 
 
-_existing_all = globals().get("__all__")
-if isinstance(_existing_all, (list, tuple)):
-    _base_exports = list(_existing_all)
-else:
-    _base_exports = [name for name in globals() if not name.startswith("_")]
-
-__all__ = [
-    *_base_exports,
-]
-
 # Extracts event information from a root file
 '''
 def get_info(fname, tree_name="Events"):
@@ -579,3 +569,15 @@ def get_diff_between_dicts(dict1,dict2,difftype,inpercent=False):
         ret_dict[k] = [ret_diff,ret_err]
 
     return ret_dict
+
+
+_existing_all = globals().get("__all__")
+if isinstance(_existing_all, (list, tuple)):
+    _base_exports = list(_existing_all)
+else:
+    _base_exports = [name for name in globals() if not name.startswith("_")]
+
+__all__ = [
+    *_base_exports,
+    *[name for name in globals() if not name.startswith("_") and name not in _base_exports],
+]
