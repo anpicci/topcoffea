@@ -19,28 +19,22 @@ logging.basicConfig(level=logging.INFO, format='%(asctime)s:%(levelname)s:%(mess
 
 env_dir_cache = Path.cwd().joinpath(Path('topeft-envs'))
 
-py_version = "3.13"  # Keep in sync with environment.yml
-
 default_modules = {
     "conda": {
         "channels": ["conda-forge"],
         "packages": [
-            f"python={py_version}",
-            "numpy",
-            "ndcctools>=7.14.11",
-            "pip",
-            "conda",
+            "coffea=2025.7.3",
+            "awkward=2.8.7",
+            "ndcctools",
             "conda-pack",
             "dill",
             "xrootd",
-            "setuptools>=72",
+            "git",
+            "pyyaml",
+            "numpy",
         ],
     },
-    "pip": [
-        "coffea==2025.7.3",
-        "awkward==2.8.7",
-        "topcoffea",
-    ],
+    "pip": ["topcoffea"],
 }
 
 pip_local_to_watch = {
