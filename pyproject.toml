@@ -23,7 +23,7 @@ classifiers = [
 ]
 dependencies = [
     "boost-histogram>=1.4",
-    "coffea>=2025.7.3",
+    "coffea==2025.7.3",
     "dill",
     "hist>=2.9",
     "numpy>=2.0",
