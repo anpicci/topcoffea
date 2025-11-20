@@ -27,6 +27,7 @@ dependencies = [
     "dill",
     "hist>=2.9",
     "numpy>=2.0",
+    "pytest",
     "pyyaml",
 ]
 

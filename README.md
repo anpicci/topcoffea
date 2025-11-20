@@ -13,8 +13,9 @@ python -c "import topcoffea; topcoffea.modules.HistEFT.HistEFT"
 The shared `coffea2025` Conda environment distributed with `topcoffea` and
 `topeft` now matches the TaskVine-ready spec used in the `ttbarEFT`
 `coffea2025` branch (`coffea=2025.7.3`, `awkward=2.8.7`, `ndcctools`,
-`conda-pack`, etc.) so local installs mirror the remote cache. Provision or
-refresh the environment with the commands below before running processors so
+`conda-pack`, etc.) so local installs mirror the remote cache. CI hashes
+`environment.yml` against the stored upstream baseline to catch drift. Provision
+or refresh the environment with the commands below before running processors so
 downstream projects see the same toolchain that CI exercises:
 
 ```bash

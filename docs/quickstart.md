@@ -13,12 +13,12 @@ This short guide summarises the minimum steps to get a development checkout of
    local checkout in sync with the cached remote environment.【F:README.md†L1-L14】
 
 2. **Reuse the Conda environment shipped with analyses**
-   The `environment.yml` file mirrors the versions baked into cached TaskVine
-   environments from the `coffea2025` toolchain (`coffea=2025.7.3`,
-   `awkward=2.8.7`, `ndcctools`, `conda-pack`, etc.) and defines the shared
-   `coffea2025` environment.  Create or update that Conda environment before
-   running processors, then rebuild cached worker tarballs so the refreshed
-   toolchain is distributed alongside submissions:
+   The `environment.yml` file now matches the `ttbarEFT` `coffea2025` baseline
+   (`coffea=2025.7.3`, `awkward=2.8.7`, `ndcctools`, `conda-pack`, etc.) so the
+   same solver inputs are used locally, in CI, and by downstream users. Create
+   or update that Conda environment before running processors, then rebuild
+   cached worker tarballs so the refreshed toolchain is distributed alongside
+   submissions:
 
    ```bash
    conda env create -f environment.yml  # or: conda env update -f environment.yml --prune

@@ -7,6 +7,39 @@ on:
 
 jobs:
 
+  Check-environment-spec:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Validate ttbarEFT coffea2025 baseline
+        run: |
+          python - <<'PY'
+          import hashlib
+          from pathlib import Path
+
+          env = Path("environment.yml")
+          baseline = Path("tests/data/ttbareft_coffea2025.yml")
+          expected = "f48088dc786c70552262b198c56c39830b4ac1af30583eee1b559f5804ff9020"
+
+          baseline_digest = hashlib.sha256(baseline.read_bytes()).hexdigest()
+          env_digest = hashlib.sha256(env.read_bytes()).hexdigest()
+
+          if baseline_digest != expected:
+              raise SystemExit(
+                  "Stored ttbarEFT baseline drifted; refresh expected digest "
+                  f"(observed {baseline_digest})."
+              )
+
+          if env_digest != baseline_digest:
+              raise SystemExit(
+                  "environment.yml drifted from the ttbarEFT coffea2025 "
+                  f"specification (observed {env_digest})."
+              )
+          PY
+
+  
   Install-smoke:
     runs-on: ubuntu-latest
     steps:
@@ -51,7 +84,7 @@ jobs:
       - uses: mamba-org/setup-micromamba@v1
         with:
           environment-file: environment.yml
-          environment-name: coffea20250703
+          environment-name: coffea2025
           init-shell: >-
                 bash
 
@@ -67,7 +100,7 @@ jobs:
 
       - name: Pytest setup
         run: |
-          micromamba install -y -n coffea20250703 -c conda-forge pytest
+          micromamba install -y -n coffea2025 -c conda-forge pytest
         shell: bash -el {0}
 
       - name: Test update json
@@ -114,35 +147,35 @@ jobs:
 
       - name: Conda list
         run: |
-          conda list -n coffea20250703
+          conda list -n coffea2025
 
       - name: Install pip packages
         run: |
-          conda run -n coffea20250703 pip install -e .
+          conda run -n coffea2025 pip install -e .
 
       - name: Smoke test namespace import
         run: |
-          conda run -n coffea20250703 python -c "import topcoffea"
+          conda run -n coffea2025 python -c "import topcoffea"
 
       - name: Pytest setup
         run: |
-          conda install -y -n coffea20250703 -c conda-forge pytest
+          conda install -y -n coffea2025 -c conda-forge pytest
 
       - name: Test update json
         run: |
-          conda run -n coffea20250703 pytest tests/test_update_json.py
+          conda run -n coffea2025 pytest tests/test_update_json.py
 
       - name: Test HistEFT unit test
         run: |
-          conda run -n coffea20250703 pytest tests/test_unit.py
+          conda run -n coffea2025 pytest tests/test_unit.py
 
       - name: Test histEFT
         run: |
-          conda run -n coffea20250703 pytest tests/test_HistEFT_add.py
+          conda run -n coffea2025 pytest tests/test_HistEFT_add.py
 
       - name: Smoke test TaskVine CLI
         run: |
-          conda run -n coffea20250703 pytest tests/test_taskvine_cli.py -k taskvine
+          conda run -n coffea2025 pytest tests/test_taskvine_cli.py -k taskvine
 
   Check-conda-env:
     runs-on: ubuntu-latest
@@ -157,8 +190,8 @@ jobs:
       - name: Smoke test shared environment
         run: |
           conda env create -f environment.yml
-          conda run -n coffea20250703 pip install -e .
-          conda run -n coffea20250703 python -c "import topcoffea"
+          conda run -n coffea2025 pip install -e .
+          conda run -n coffea2025 python -c "import topcoffea"
 
   Check-conda-doc-snippet:
     runs-on: ubuntu-latest
@@ -173,6 +206,6 @@ jobs:
       - name: README conda snippet
         run: |
           conda env create -f environment.yml
-          conda run -n coffea20250703 pip install -e .
-          conda run -n coffea20250703 python -c "import topcoffea"
+          conda run -n coffea2025 pip install -e .
+          conda run -n coffea2025 python -c "import topcoffea"
 
