@@ -128,17 +128,25 @@ if HAS_STREAMING_SUPPORT:
             self.readline = self._unframer.readline
             self.metastack = []
             self.stack = []
-            self.append = self.stack.append
-            self.proto = 0
+            mark = self.mark
             read = self.read
             dispatch = self.dispatch
+            push_mark = self.push_mark
             try:
                 while True:
-                    if self._stop_event.is_set():
-                        return
                     key = read(1)
                     if not key:
                         raise EOFError
+                    if key[0] == b"."[0]:
+                        return
+                    if key[0] == b"("[0]:
+                        push_mark()
+                        continue
+                    if key[0] == b"g"[0]:
+                        markobject = mark()
+                        if isinstance(markobject, tuple):
+                            key = markobject[0]
+                            self._emit(key, markobject[1])
                     dispatch[key[0]](self)
             except _Stop:
                 return

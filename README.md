@@ -85,3 +85,19 @@ for key, lazy_hist in lazy_entries:
 Using `iterate_histograms_from_pkl` keeps peak memory usage constant with
 respect to the histogram payloads while still supporting the existing pickle
 format.
+
+## Compatibility helpers
+
+The `topcoffea.modules.compat` helpers expose the compatibility shims used by
+`topeft` so other projects no longer need to vendor them separately:
+
+* `ensure_histEFT_py39_compat()` loads `topcoffea.modules.histEFT` with
+  Python 3.9–safe type annotations when the module contains ``|`` style union
+  types.
+* `ensure_hist_utils()` provides a resilient import path for
+  `topcoffea.modules.hist_utils` in minimal environments where optional
+  dependencies may be missing.
+
+Call `ensure_histEFT_py39_compat()` before importing `histEFT` on Python 3.9
+deployments, and use `ensure_hist_utils()` when you need to guarantee access to
+the histogram streaming utilities even if `topcoffea` is partially available.
