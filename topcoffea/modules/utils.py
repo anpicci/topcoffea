@@ -92,6 +92,23 @@ def cached_get_correlation_tag(uncertainty_name, process_name):
 
 # Return process names with a normalized leading token
 def canonicalize_process_name(process_name):
+    """Normalize dataset names used in data-driven workflows.
+
+    The TopEFT workflows commonly label non-prompt and charge-flip templates
+    with mixed-case prefixes (e.g. ``NonPromptUL18`` or ``Flips2023BPix``).
+    This helper lowercases the leading alphabetical token while preserving
+    any trailing year/suffix information so that templates can be matched
+    consistently across Run 2 and Run 3 naming conventions.
+
+    Examples
+    --------
+    >>> canonicalize_process_name("NonPromptUL16APV")
+    'nonpromptUL16APV'
+    >>> canonicalize_process_name("Flips2022EE")
+    'flips2022EE'
+
+    """
+
     match = re.match(r"([A-Za-z]+)(.*)", process_name)
     if not match:
         return process_name
@@ -623,6 +640,9 @@ if isinstance(_existing_all, (list, tuple)):
     _base_exports = list(_existing_all)
 else:
     _base_exports = [name for name in globals() if not name.startswith("_")]
+
+if "canonicalize_process_name" not in _base_exports:
+    _base_exports.append("canonicalize_process_name")
 
 __all__ = [
     *_base_exports,
