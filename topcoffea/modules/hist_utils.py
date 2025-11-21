@@ -121,6 +121,34 @@ class _StreamingHistDict(dict):
 _QUEUE_END = object()
 
 
+class _StopStreaming(EOFError):
+    """Sentinel exception used to cancel streaming unpickling early."""
+
+
+class _StopAwareReader:
+    __slots__ = ("_file", "_stop_event")
+
+    def __init__(self, file, stop_event: threading.Event):
+        self._file = file
+        self._stop_event = stop_event
+
+    def __getattr__(self, name):  # pragma: no cover - passthrough for file attrs
+        return getattr(self._file, name)
+
+    def _check(self):
+        if self._stop_event.is_set():
+            raise _StopStreaming()
+
+    def read(self, size):  # pragma: no cover - small, exercised indirectly
+        self._check()
+        return self._file.read(size)
+
+    def readinto(self, buffer):  # pragma: no cover - small, exercised indirectly
+        self._check()
+        return self._file.readinto(buffer)
+
+
+
 if HAS_STREAMING_SUPPORT:
 
     class _StreamingHistUnpickler(_Unpickler):
@@ -129,13 +157,14 @@ if HAS_STREAMING_SUPPORT:
         dispatch = _Unpickler.dispatch.copy()
 
         def __init__(self, file, *, allow_empty=True, **kwargs):
-            super().__init__(file, **kwargs)
+            self._stop_event = threading.Event()
+            stop_aware_file = _StopAwareReader(file, self._stop_event)
+            super().__init__(stop_aware_file, **kwargs)
             self._allow_empty = allow_empty
             self._root_dict = None
             self._queue: "queue.Queue[Tuple[str, object] | object]" = queue.Queue(
                 maxsize=1
             )
-            self._stop_event = threading.Event()
             self._worker_exc: Exception | None = None
 
         def _should_emit(self, hist) -> bool:
@@ -177,6 +206,8 @@ if HAS_STREAMING_SUPPORT:
                     raise UnpicklingError(
                         "Histogram pickle did not contain a dictionary"
                     )
+            except _StopStreaming:
+                pass
             except Exception as exc:  # pragma: no cover - propagated to caller
                 self._worker_exc = exc
             finally:
