@@ -167,6 +167,10 @@ if HAS_STREAMING_SUPPORT:
             )
             self._worker_exc: Exception | None = None
 
+        def _check_stop(self):
+            if self._stop_event.is_set():
+                raise _StopStreaming()
+
         def _should_emit(self, hist) -> bool:
             if self._allow_empty:
                 return True
@@ -194,17 +198,20 @@ if HAS_STREAMING_SUPPORT:
         def _push_queue(self, value):
             while True:
                 try:
+                    self._check_stop()
+                except _StopStreaming:
+                    if value is _QUEUE_END:
+                        try:
+                            self._queue.put_nowait(_QUEUE_END)
+                        except queue.Full:
+                            pass
+                        return
+                    raise
+                try:
                     self._queue.put(value, timeout=0.1)
                     return
                 except queue.Full:
-                    if self._stop_event.is_set():
-                        if value is _QUEUE_END:
-                            try:
-                                self._queue.get_nowait()
-                            except queue.Empty:
-                                pass
-                            continue
-                        return
+                    self._check_stop()
                     continue
 
         def _consume_pickle(self):

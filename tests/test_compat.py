@@ -64,3 +64,12 @@ def test_hist_utils_fallback(monkeypatch):
     assert module_name in sys.modules
     assert sys.modules[module_name] is hist_utils
     assert getattr(importlib.import_module("topcoffea.modules"), "hist_utils") is hist_utils
+
+
+def test_compat_module_exposes_shims():
+    compat = importlib.import_module("topcoffea.modules.compat")
+
+    assert compat.ensure_histEFT_py39_compat is hist_utils.ensure_histEFT_py39_compat
+    assert compat.ensure_hist_utils is hist_utils.ensure_hist_utils
+    assert compat.iterate_hist_from_pkl is hist_utils.iterate_hist_from_pkl
+    assert compat.iterate_histograms_from_pkl is hist_utils.iterate_histograms_from_pkl
