@@ -5,7 +5,6 @@ from types import SimpleNamespace
 
 import pytest
 
-from topcoffea.modules import compat as compat_mod
 from topcoffea.modules import hist_utils
 
 
@@ -21,8 +20,6 @@ def _reset_histEFT_module():
 
 
 def test_py39_histEFT_patch(monkeypatch):
-    assert compat_mod.ensure_histEFT_py39_compat is hist_utils.ensure_histEFT_py39_compat
-
     def fake_get_source(fullname):
         assert fullname == "topcoffea.modules.histEFT"
         return """
@@ -46,16 +43,12 @@ value: ArrayLike | Mapping | None = None
     monkeypatch.setattr(hist_utils.sys, "version_info", (3, 9, 0))
     monkeypatch.setattr(importlib.util, "find_spec", fake_find_spec)
 
-    compat_mod.ensure_histEFT_py39_compat()
+    hist_utils.ensure_histEFT_py39_compat()
 
     patched_module = sys.modules.get("topcoffea.modules.histEFT")
     assert patched_module is not None
     assert patched_module.__annotations__["value"] == "Union[ArrayLike, Mapping, None]"
-
-
 def test_hist_utils_fallback(monkeypatch):
-    assert compat_mod.ensure_hist_utils is hist_utils.ensure_hist_utils
-
     real_import_module = hist_utils.importlib.import_module
 
     def fake_import_module(name, *args, **kwargs):

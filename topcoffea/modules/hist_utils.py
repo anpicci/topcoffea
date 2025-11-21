@@ -192,11 +192,19 @@ if HAS_STREAMING_SUPPORT:
                 worker.join()
 
         def _push_queue(self, value):
-            while not self._stop_event.is_set():
+            while True:
                 try:
                     self._queue.put(value, timeout=0.1)
                     return
                 except queue.Full:
+                    if self._stop_event.is_set():
+                        if value is _QUEUE_END:
+                            try:
+                                self._queue.get_nowait()
+                            except queue.Empty:
+                                pass
+                            continue
+                        return
                     continue
 
         def _consume_pickle(self):
