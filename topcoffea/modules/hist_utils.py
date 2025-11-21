@@ -16,7 +16,7 @@ except ModuleNotFoundError:  # pragma: no cover - fallback for minimal envs
     cloudpickle = pickle  # type: ignore[assignment]
 
 try:  # pragma: no cover - exercised via versioned environments
-    from pickle import DICT, EMPTY_DICT, _Stop, _Unframer, _Unpickler
+    from pickle import DICT, EMPTY_DICT, _Unpickler
 except ImportError:  # Python < 3.11 lacks the streaming helpers
     _STREAMING_SUPPORT = False
 else:
@@ -55,6 +55,38 @@ class _StreamingHistDict(dict):
 _QUEUE_END = object()
 
 
+class _StopStreaming(EOFError):
+    """Sentinel exception used to cancel streaming unpickling early."""
+
+
+class _StopAwareReader:
+    __slots__ = ("_file", "_stop_event")
+
+    def __init__(self, file, stop_event: threading.Event):
+        self._file = file
+        self._stop_event = stop_event
+
+    def __getattr__(self, name):  # pragma: no cover - passthrough for file attrs
+        return getattr(self._file, name)
+
+    def _check(self):
+        if self._stop_event.is_set():
+            raise _StopStreaming()
+
+    def read(self, size):  # pragma: no cover - small, exercised indirectly
+        self._check()
+        return self._file.read(size)
+
+    def readinto(self, buffer):  # pragma: no cover - small, exercised indirectly
+        self._check()
+        return self._file.readinto(buffer)
+
+    def readline(self, size=-1):  # pragma: no cover - small, exercised indirectly
+        self._check()
+        return self._file.readline(size)
+
+
+
 if HAS_STREAMING_SUPPORT:
 
     class _StreamingHistUnpickler(_Unpickler):
@@ -63,14 +95,19 @@ if HAS_STREAMING_SUPPORT:
         dispatch = _Unpickler.dispatch.copy()
 
         def __init__(self, file, *, allow_empty=True, **kwargs):
-            super().__init__(file, **kwargs)
+            self._stop_event = threading.Event()
+            stop_aware_file = _StopAwareReader(file, self._stop_event)
+            super().__init__(stop_aware_file, **kwargs)
             self._allow_empty = allow_empty
             self._root_dict = None
             self._queue: "queue.Queue[Tuple[str, object] | object]" = queue.Queue(
                 maxsize=1
             )
-            self._stop_event = threading.Event()
             self._worker_exc: Exception | None = None
+
+        def _check_stop(self):
+            if self._stop_event.is_set():
+                raise _StopStreaming()
 
         def _should_emit(self, hist) -> bool:
             if self._allow_empty:
@@ -97,11 +134,22 @@ if HAS_STREAMING_SUPPORT:
                 worker.join()
 
         def _push_queue(self, value):
-            while not self._stop_event.is_set():
+            while True:
+                try:
+                    self._check_stop()
+                except _StopStreaming:
+                    if value is _QUEUE_END:
+                        try:
+                            self._queue.put_nowait(_QUEUE_END)
+                        except queue.Full:
+                            pass
+                        return
+                    raise
                 try:
                     self._queue.put(value, timeout=0.1)
                     return
                 except queue.Full:
+                    self._check_stop()
                     continue
 
         def _consume_pickle(self):
@@ -111,37 +159,20 @@ if HAS_STREAMING_SUPPORT:
                     raise UnpicklingError(
                         "Histogram pickle did not contain a dictionary"
                     )
+            except _StopStreaming:
+                pass
             except Exception as exc:  # pragma: no cover - propagated to caller
                 self._worker_exc = exc
             finally:
                 self._push_queue(_QUEUE_END)
 
         def _run(self):
-            if not hasattr(self, "_file_read"):
-                raise UnpicklingError(
-                    "Unpickler.__init__() was not called by %s.__init__()"
-                    % (self.__class__.__name__,)
-                )
-            self._unframer = _Unframer(self._file_read, self._file_readline)
-            self.read = self._unframer.read
-            self.readinto = self._unframer.readinto
-            self.readline = self._unframer.readline
-            self.metastack = []
-            self.stack = []
-            self.append = self.stack.append
-            self.proto = 0
-            read = self.read
-            dispatch = self.dispatch
-            try:
-                while True:
-                    if self._stop_event.is_set():
-                        return
-                    key = read(1)
-                    if not key:
-                        raise EOFError
-                    dispatch[key[0]](self)
-            except _Stop:
-                return
+            while True:
+                self._check_stop()
+                try:
+                    self.load()
+                except EOFError:
+                    return
 
         def _is_root_context(self) -> bool:
             return self._root_dict is None and not self.stack and not self.metastack
