@@ -18,6 +18,10 @@ class CanonicalizeProcessNameTests(unittest.TestCase):
     def test_returns_unmodified_when_no_alpha_prefix(self):
         self.assertEqual(canonicalize_process_name("123abc"), "123abc")
 
+    def test_handles_run2_and_run3_samples(self):
+        self.assertEqual(canonicalize_process_name("NonPromptUL18"), "nonpromptUL18")
+        self.assertEqual(canonicalize_process_name("NonPrompt2022EE"), "nonprompt2022EE")
+
 
 class RateSystematicHelpersTests(unittest.TestCase):
     def test_cached_get_syst_defaults_and_range_parsing(self):
