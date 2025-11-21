@@ -5,7 +5,6 @@ from __future__ import annotations
 import gzip
 import pickle
 import queue
-import sys
 import threading
 from typing import Dict, Iterator, Tuple, Union
 
@@ -28,87 +27,10 @@ HAS_STREAMING_SUPPORT = _STREAMING_SUPPORT
 __all__ = [
     "HAS_STREAMING_SUPPORT",
     "LazyHist",
-    "ensure_histEFT_py39_compat",
-    "ensure_hist_utils",
     "get_hist_dict_non_empty",
     "iterate_hist_from_pkl",
     "iterate_histograms_from_pkl",
 ]
-
-
-def _rewrite_pep604_unions(source: str) -> str:
-    """Convert ``A | B`` style annotations into ``typing.Union[A, B]``.
-
-    This best-effort replacement is only applied when importing ``histEFT`` on
-    Python < 3.10, where PEP 604 syntax is unsupported.
-    """
-
-    import re
-
-    # Replace the simple binary form. This intentionally avoids attempting to
-    # parse the full grammar and instead targets the limited cases used inside
-    # ``histEFT`` when PEP 604 unions are present.
-    return re.sub(r"(?P<left>[\w\.\[\], ]+)\s*\|\s*(?P<right>[\w\.\[\], ]+)", r"typing.Union[\g<left>, \g<right>]", source)
-
-
-def ensure_histEFT_py39_compat():
-    """Import ``topcoffea.modules.histEFT`` with Python 3.9–safe annotations."""
-
-    import importlib
-    import importlib.util
-    import pathlib
-    import sys
-    import types
-    import typing
-
-    module_name = "topcoffea.modules.histEFT"
-    if module_name in sys.modules:
-        return sys.modules[module_name]
-
-    try:
-        return importlib.import_module(module_name)
-    except SyntaxError as exc:  # pragma: no cover - exercised on Python < 3.10
-        if sys.version_info >= (3, 10):
-            raise
-
-        path = pathlib.Path(__file__).with_name("histEFT.py")
-        source = path.read_text()
-        patched_source = _rewrite_pep604_unions(source)
-
-        module = types.ModuleType(module_name)
-        module.__file__ = str(path)
-        module.__package__ = "topcoffea.modules"
-        module.__dict__["typing"] = typing
-
-        code = compile(patched_source, str(path), "exec")
-        sys.modules[module_name] = module
-        exec(code, module.__dict__)
-        return module
-
-
-def ensure_hist_utils():
-    """Ensure ``topcoffea.modules.hist_utils`` is importable."""
-
-    import importlib
-    import importlib.util
-    import pathlib
-    import sys
-
-    module_name = "topcoffea.modules.hist_utils"
-    if module_name in sys.modules:
-        return sys.modules[module_name]
-
-    try:
-        return importlib.import_module(module_name)
-    except ModuleNotFoundError:  # pragma: no cover - fallback path
-        path = pathlib.Path(__file__).resolve()
-        spec = importlib.util.spec_from_file_location(module_name, path)
-        if spec is None or spec.loader is None:
-            raise
-        module = importlib.util.module_from_spec(spec)
-        sys.modules[module_name] = module
-        spec.loader.exec_module(module)
-        return module
 
 
 def get_hist_dict_non_empty(h: Dict[str, object]) -> Dict[str, object]:
