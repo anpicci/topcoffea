@@ -31,6 +31,11 @@ dependencies = [
     "pyyaml",
 ]
 
+[project.optional-dependencies]
+topeft = [
+    "topeft @ git+https://github.com/TopEFT/topeft.git@format_update_anpicci_calcoffea",
+]
+
 [project.urls]
 Homepage = "https://github.com/TopEFT/topcoffea"
 Repository = "https://github.com/TopEFT/topcoffea"

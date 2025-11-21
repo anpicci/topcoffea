@@ -84,3 +84,36 @@ def test_get_environment_rebuilds_on_topeft_changes(tmp_path, monkeypatch):
 
     assert env_name == captured["env_name"]
     assert captured["force"] is True
+
+
+def test_get_environment_reuses_cache(tmp_path, monkeypatch):
+    repo = _create_topeft_repo(tmp_path)
+
+    monkeypatch.setattr(remote_environment, "env_dir_cache", tmp_path / "envs")
+
+    def fake_find_local_pip():
+        return {"topeft": str(repo)}
+
+    calls = []
+
+    def fake_create_env(env_name, spec, force=False):
+        calls.append({"env_name": env_name, "force": force})
+        env_path = Path(env_name)
+        env_path.parent.mkdir(parents=True, exist_ok=True)
+        if not env_path.exists():
+            env_path.write_text("first-build")
+        else:
+            env_path.write_text(env_path.read_text() + "|reused")
+        return env_name
+
+    monkeypatch.setattr(remote_environment, "_find_local_pip", fake_find_local_pip)
+    monkeypatch.setattr(remote_environment, "_create_env", fake_create_env)
+    monkeypatch.setattr(remote_environment, "_clean_cache", lambda *args, **kwargs: None)
+
+    env_name_first = remote_environment.get_environment()
+    env_name_second = remote_environment.get_environment()
+
+    assert env_name_first == env_name_second
+    assert calls[0]["force"] is False
+    assert calls[1]["force"] is False
+    assert Path(env_name_second).read_text().endswith("|reused")

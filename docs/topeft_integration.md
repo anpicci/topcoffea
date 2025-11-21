@@ -34,6 +34,30 @@ Re-run the smoke test after pulling new commits so the cached environment picks
 up the latest code.  If the command fails, reinstall the editable package inside
 the `topeft` environment before continuing.
 
+## Single-command synchronized install
+
+If you do not already have a local `topeft` checkout, the new
+`[project.optional-dependencies].topeft` extra pins the expected branch and
+keeps the editable installs aligned in one shot:
+
+```bash
+python -m pip install -e "git+https://github.com/TopEFT/topcoffea.git@ch_update_calcoffea#egg=topcoffea[topeft]"
+python -m topcoffea.modules.remote_environment
+```
+
+The module invocation rebuilds the TaskVine environment tarball only when the
+`topcoffea` or `topeft` sources (or their dependency pins) change; otherwise it
+reuses the cached `topeft-envs/*.tar.gz` payload already staged on disk.
+
+For sibling clones that are already on `ch_update_calcoffea` and
+`format_update_anpicci_calcoffea`, keep using the dual editable install to avoid
+pulling a second copy from Git:
+
+```bash
+python -m pip install -e ../topcoffea -e ../topeft
+python -m topcoffea.modules.remote_environment
+```
+
 ## Suggested workflow
 
 1. Clone both repositories side-by-side and check out the branches listed above.
