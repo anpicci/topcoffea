@@ -47,7 +47,10 @@ python -m topcoffea.modules.remote_environment
 
 The module invocation rebuilds the TaskVine environment tarball only when the
 `topcoffea` or `topeft` sources (or their dependency pins) change; otherwise it
-reuses the cached `topeft-envs/*.tar.gz` payload already staged on disk.
+reuses the cached `topeft-envs/*.tar.gz` payload already staged on disk.  The
+`topcoffea.modules.remote_environment` helper now captures the pinned
+`topeft @ ...` entry from `pip freeze`, so the cache will refresh when the
+non-editable dependency from the optional extra updates.
 
 For sibling clones that are already on `ch_update_calcoffea` and
 `format_update_anpicci_calcoffea`, keep using the dual editable install to avoid

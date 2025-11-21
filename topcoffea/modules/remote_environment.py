@@ -1,4 +1,5 @@
 #! /usr/bin/env python
+import copy
 import json
 import hashlib
 import subprocess
@@ -9,6 +10,8 @@ import glob
 import os
 import re
 from pathlib import Path
+
+from importlib import metadata
 
 from typing import Dict, List, Optional
 
@@ -97,6 +100,51 @@ def _check_current_env(spec: Dict):
     return spec
 
 
+def _safe_check_current_env(spec: Dict) -> Dict:
+    try:
+        return _check_current_env(spec)
+    except FileNotFoundError:
+        logger.warning(
+            "conda executable not found; skipping environment introspection",
+        )
+    except subprocess.CalledProcessError:
+        logger.warning("conda environment export failed; skipping introspection")
+    return spec
+
+
+def _pip_freeze_entry(package: str) -> Optional[str]:
+    try:
+        freeze_output = subprocess.check_output(
+            [sys.executable, "-m", "pip", "list", "--format", "freeze"],
+        ).decode()
+    except subprocess.CalledProcessError:
+        logger.warning("Unable to inspect pip freeze output; skipping %s", package)
+        return None
+
+    package_lower = package.lower()
+    for line in freeze_output.splitlines():
+        if line.lower().startswith(f"{package_lower}==") or line.lower().startswith(
+            f"{package_lower} @",
+        ):
+            return line
+    return None
+
+
+def _ensure_installed_pip_package(spec: Dict, package: str) -> Dict:
+    if package in spec["pip"]:
+        return spec
+
+    try:
+        metadata.distribution(package)
+    except metadata.PackageNotFoundError:
+        return spec
+
+    pinned_package = _pip_freeze_entry(package)
+    if pinned_package:
+        spec["pip"].append(pinned_package)
+    return spec
+
+
 def _create_env(env_name: str, spec: Dict, force: bool = False):
     if force:
         logger.info("Forcing rebuilding of {}".format(env_name))
@@ -107,7 +155,7 @@ def _create_env(env_name: str, spec: Dict, force: bool = False):
 
     with tempfile.NamedTemporaryFile() as f:
         logger.info("Checking current conda environment")
-        spec = _check_current_env(spec)
+        spec = _safe_check_current_env(spec)
         packages_json = json.dumps(spec)
         logger.info("base env specification:{}".format(packages_json))
         f.write(packages_json.encode())
@@ -206,8 +254,8 @@ def get_environment(
     # ensure cache directory exists
     Path(env_dir_cache).mkdir(parents=True, exist_ok=True)
 
-    spec = dict(default_modules)
-    spec_pip_local_to_watch = dict(pip_local_to_watch)
+    spec = copy.deepcopy(default_modules)
+    spec_pip_local_to_watch = copy.deepcopy(pip_local_to_watch)
     if extra_conda:
         spec["conda"]["packages"].extend(extra_conda)
     if extra_pip:
@@ -215,6 +263,9 @@ def get_environment(
     if extra_pip_local:
         spec["pip"].extend(extra_pip_local)
         spec_pip_local_to_watch.update(extra_pip_local)
+
+    spec = _safe_check_current_env(spec)
+    spec = _ensure_installed_pip_package(spec, "topeft")
 
     packages_hash = hashlib.sha256(json.dumps(spec).encode()).hexdigest()[0:8]
     pip_paths = _find_local_pip()
