@@ -6,6 +6,7 @@ import os
 import pickle
 import re
 import time
+from functools import lru_cache
 
 try:  # pragma: no cover - exercised when cloudpickle is unavailable
     import cloudpickle
@@ -42,6 +43,52 @@ def get_pdiff(a,b,in_percent=False):
     return p
 
 ############## Strings manipulations and tools ##############
+
+
+def _rate_syst_json_path():
+    return os.path.abspath(pjoin(os.path.dirname(__file__), "..", "params", "rate_systs.json"))
+
+
+@lru_cache(maxsize=1)
+def _cached_rate_syst_dict():
+    with open(_rate_syst_json_path()) as f:
+        return json.load(f)
+
+
+def _convert_syst_to_range(uncertainty_value):
+    if isinstance(uncertainty_value, str) and "/" in uncertainty_value:
+        down, up = (float(v) for v in uncertainty_value.split("/", maxsplit=1))
+    elif isinstance(uncertainty_value, (int, float)):
+        up = float(uncertainty_value)
+        down = 2.0 - up
+    else:
+        raise ValueError(f"Unexpected rate systematic format: {uncertainty_value}")
+
+    return (down, up, 0)
+
+
+def cached_get_syst(uncertainty_name, sample_name=None):
+    rate_syst_dict = _cached_rate_syst_dict().get("rate_uncertainties", {})
+
+    raw_value = rate_syst_dict.get(uncertainty_name)
+    if isinstance(raw_value, dict) and sample_name is not None:
+        raw_value = raw_value.get(sample_name)
+
+    if raw_value is None:
+        return (1.0, 1.0, 0)
+
+    return _convert_syst_to_range(raw_value)
+
+
+def cached_get_syst_lst():
+    return list(_cached_rate_syst_dict().get("rate_uncertainties", {}).keys())
+
+
+def cached_get_correlation_tag(uncertainty_name, process_name):
+    correlations = _cached_rate_syst_dict().get("correlations", {})
+    process_corrs = correlations.get(process_name, {})
+    return process_corrs.get(uncertainty_name)
+
 
 # Return process names with a normalized leading token
 def canonicalize_process_name(process_name):
