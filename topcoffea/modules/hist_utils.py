@@ -3,13 +3,10 @@
 from __future__ import annotations
 
 import gzip
-import importlib
-import importlib.util
 import pickle
 import queue
 import sys
 import threading
-import typing
 from typing import Dict, Iterator, Tuple, Union
 
 from pickle import UnpicklingError
@@ -26,77 +23,15 @@ except ImportError:  # Python < 3.11 lacks the streaming helpers
 else:
     _STREAMING_SUPPORT = True
 
-_FALLBACK_HIST_UTILS = typing.cast(object, sys.modules[__name__])
-
-_PATCH_TARGET = "ArrayLike | Mapping | None"
-_PATCH_REPLACEMENT = "Union[ArrayLike, Mapping, None]"
-
 HAS_STREAMING_SUPPORT = _STREAMING_SUPPORT
 
 __all__ = [
     "HAS_STREAMING_SUPPORT",
     "LazyHist",
     "get_hist_dict_non_empty",
-    "ensure_histEFT_py39_compat",
-    "ensure_hist_utils",
     "iterate_hist_from_pkl",
     "iterate_histograms_from_pkl",
 ]
-
-
-def _patched_histEFT_source(source: str) -> str | None:
-    if _PATCH_TARGET not in source:
-        return None
-    return source.replace(_PATCH_TARGET, _PATCH_REPLACEMENT)
-
-
-def ensure_histEFT_py39_compat() -> None:
-    """Load ``topcoffea.modules.histEFT`` with Python 3.9 friendly annotations."""
-
-    if sys.version_info >= (3, 10):
-        return
-
-    fullname = "topcoffea.modules.histEFT"
-    if fullname in sys.modules:
-        return
-
-    spec = importlib.util.find_spec(fullname)
-    if spec is None or spec.loader is None or not hasattr(spec.loader, "get_source"):
-        return
-
-    source = spec.loader.get_source(fullname)
-    if source is None:
-        return
-
-    patched_source = _patched_histEFT_source(source)
-    if patched_source is None:
-        importlib.import_module(fullname)
-        return
-
-    module = importlib.util.module_from_spec(spec)
-    module.__dict__.setdefault("Union", typing.Union)
-    try:
-        sys.modules[fullname] = module
-        exec(compile(patched_source, spec.origin or fullname, "exec"), module.__dict__)
-    except Exception:
-        sys.modules.pop(fullname, None)
-        raise
-
-    package_name, _, attr = fullname.rpartition(".")
-    package = importlib.import_module(package_name)
-    setattr(package, attr, module)
-
-
-def ensure_hist_utils() -> None:
-    """Ensure ``topcoffea.modules.hist_utils`` is importable."""
-
-    try:
-        importlib.import_module("topcoffea.modules.hist_utils")
-    except ModuleNotFoundError:
-        modules_pkg = importlib.import_module("topcoffea.modules")
-        module_name = "topcoffea.modules.hist_utils"
-        sys.modules[module_name] = _FALLBACK_HIST_UTILS
-        setattr(modules_pkg, "hist_utils", _FALLBACK_HIST_UTILS)
 
 
 def get_hist_dict_non_empty(h: Dict[str, object]) -> Dict[str, object]:
