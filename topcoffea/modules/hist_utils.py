@@ -81,6 +81,10 @@ class _StopAwareReader:
         self._check()
         return self._file.readinto(buffer)
 
+    def readline(self, size=-1):  # pragma: no cover - small, exercised indirectly
+        self._check()
+        return self._file.readline(size)
+
 
 
 if HAS_STREAMING_SUPPORT:

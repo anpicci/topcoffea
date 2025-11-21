@@ -86,3 +86,19 @@ Using `iterate_histograms_from_pkl` keeps peak memory usage constant with
 respect to the histogram payloads while still supporting the existing pickle
 format.
 
+## Compatibility helpers
+
+Projects running on older Python or ``numpy`` releases can import the
+compatibility layer to smooth over missing annotations or optional streaming
+support:
+
+```python
+from topcoffea.modules import compat
+
+# Ensure ``numpy.typing.Self`` is available for histEFT annotations on Python 3.9
+compat.ensure_histEFT_py39_compat()
+
+# Load histogram utilities (including the streaming fallback) via a stable entrypoint
+hist_utils = compat.ensure_hist_utils()
+```
+
