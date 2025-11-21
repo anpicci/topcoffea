@@ -73,18 +73,29 @@ Running the smoke test mirrors the CI check and guarantees that modules such as
 
 ## Documentation
 
-* [Quickstart](docs/quickstart.md) – condensed installation and executor notes.
+* [Quickstart](docs/quickstart.md) – installation and executor conventions for
+  the `topcoffea` helpers shared across analyses.
 * [Configuration guide](docs/configuration.md) – details on `RunConfig`, YAML
   overlays, and the dataclass helpers powering executors and jet corrections.
 * [Tuple schema](docs/tuple_schema.md) – description of the
   `(variable, channel, application, sample, systematic)` histogram keys used in
   pickle outputs.
-* [`topeft` integration](docs/topeft_integration.md) – best practices for
-  coordinating `ch_update_calcoffea` with `format_update_anpicci_calcoffea`.
+* [`topeft` integration](docs/topeft_integration.md) – branch coordination tips
+  for keeping shared helpers aligned.
 
-Examples of analysis repositories making use of `topcoffea`:
-* [`topeft`](https://github.com/TopEFT/topeft): EFT analyses in the top sector.
-* [`ewkcoffea`](): Multi boson analyses.
+End-to-end run and plotting workflows now live in the
+[`topeft`](https://github.com/TopEFT/topeft) documentation; follow those guides
+for campaign-level instructions and use the `topcoffea` references above for API
+and configuration details.
+
+## Using with `topeft`
+
+When testing changes against `topeft`, pair the `ch_update_calcoffea` branch
+here with `format_update_anpicci_calcoffea` in the `topeft` repository so the
+shared helpers and CLI flags stay in sync. The authoritative run and plotting
+instructions live in the `topeft` quickstart and workflow guides; refer to those
+documents for end-to-end steps and use the `topcoffea` references above to look
+up configuration and tuple-schema details.
 
 ## Remote environment cache
 
