@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import importlib
 from importlib import import_module as _import_module
 from pathlib import Path
 from types import ModuleType
@@ -46,6 +47,38 @@ def _ensure_not_vendored_in_topeft(package_root: Path) -> None:
 
 
 _ensure_not_vendored_in_topeft(_PACKAGE_ROOT)
+
+
+def _verify_numpy_pandas_abi() -> None:
+    """Fail fast when pandas/NumPy wheels are built against incompatible ABIs."""
+
+    try:  # pragma: no cover - environment guard
+        np = importlib.import_module("numpy")
+        pd = importlib.import_module("pandas")
+    except Exception as exc:
+        raise RuntimeError(
+            "Failed to import numpy/pandas during topcoffea startup. Recreate the "
+            "coffea2025 environment and rebuild the TaskVine tarball before "
+            "rerunning: `conda env update -f environment.yml --prune` followed "
+            "by `python -m topcoffea.modules.remote_environment`."
+        ) from exc
+
+    try:  # pragma: no cover - environment guard
+        from pandas import _libs as _pd_libs
+
+        _ = _pd_libs.hashtable.Int64HashTable
+    except Exception as exc:
+        raise RuntimeError(
+            "Detected a pandas/NumPy ABI mismatch (numpy "
+            f"{np.__version__}, pandas {pd.__version__}). Recreate the "
+            "coffea2025 environment and rebuild the TaskVine tarball: `conda env "
+            "update -f environment.yml --prune` followed by `python -m "
+            "topcoffea.modules.remote_environment`. Use the refreshed "
+            "environment for both futures and TaskVine runs."
+        ) from exc
+
+
+_verify_numpy_pandas_abi()
 
 try:
     __version__ = version("topcoffea")
