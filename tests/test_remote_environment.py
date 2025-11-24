@@ -3,13 +3,15 @@ import sys
 import types
 from pathlib import Path
 
-sys.path.append(str(Path(__file__).resolve().parents[1]))
-sys.modules.setdefault("coffea", types.SimpleNamespace(__version__="0.0"))
-
-from topcoffea.modules.remote_environment import _sanitize_spec
+import pytest
 
 
-def test_sanitize_spec_relaxes_unavailable_pip_pin():
+def test_sanitize_spec_relaxes_unavailable_pip_pin(monkeypatch):
+    monkeypatch.syspath_prepend(str(Path(__file__).resolve().parents[1]))
+    monkeypatch.setitem(sys.modules, "coffea", types.SimpleNamespace(__version__="0.0"))
+
+    from topcoffea.modules.remote_environment import _sanitize_spec
+
     # Simulate a spec assembled from a host environment export with strict pins
     spec = {
         "conda": {
