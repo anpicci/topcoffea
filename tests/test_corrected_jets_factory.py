@@ -43,7 +43,7 @@ def test_corrected_jets_factory_build_without_cache():
     )
 
     factory = CorrectedJetsFactory(name_map, JECStack())
-    corrected_jets = factory.build(jets, lazy_cache=None)
+    corrected_jets = factory.build(jets)
 
     np.testing.assert_allclose(
         ak.to_numpy(ak.flatten(corrected_jets[name_map["JetPt"]], axis=None)),
@@ -55,7 +55,7 @@ def test_corrected_jets_factory_build_without_cache():
     )
 
 
-def test_corrected_jets_factory_defaults_to_cache(monkeypatch):
+def test_corrected_jets_factory_does_not_create_cache(monkeypatch):
     name_map = {
         "JetPt": "pt",
         "JetMass": "mass",
@@ -92,11 +92,60 @@ def test_corrected_jets_factory_defaults_to_cache(monkeypatch):
     monkeypatch.setattr(ak, "virtual", tracking_virtual)
 
     factory = CorrectedJetsFactory(name_map, JECStack())
-    factory.build(jets, lazy_cache=None)
+    factory.build(jets)
 
     assert len(caches) > 0
-    assert all(cache is not None for cache in caches)
-    assert len(set(map(id, caches))) == 1
+    assert all(cache is None for cache in caches)
+
+
+def test_corrected_jets_factory_allows_corrections_without_cache():
+    name_map = {
+        "JetPt": "pt",
+        "JetMass": "mass",
+        "ptRaw": "pt_raw",
+        "massRaw": "mass_raw",
+        "JetEta": "eta",
+        "JetPhi": "phi",
+        "ptGenJet": "pt_gen",
+    }
+
+    jets = ak.Array(
+        [
+            [
+                {
+                    "pt": 25.0,
+                    "mass": 3.0,
+                    "pt_raw": 25.0,
+                    "mass_raw": 3.0,
+                    "eta": 0.0,
+                    "phi": 0.0,
+                    "pt_gen": 25.0,
+                }
+            ]
+        ]
+    )
+
+    class FakeCorrection:
+        signature = ("JetPt",)
+
+        def __init__(self):
+            self.cache_arguments = []
+
+        def getCorrection(self, JetPt, form=None, lazy_cache=None):
+            self.cache_arguments.append(lazy_cache)
+            return np.ones_like(JetPt)
+
+    stack = JECStack()
+    stack.jec = FakeCorrection()
+    stack.junc = None
+    stack.jer = None
+    stack.jersf = None
+
+    factory = CorrectedJetsFactory(name_map, stack)
+    corrected_jets = factory.build(jets)
+
+    assert corrected_jets[name_map["JetPt"]].to_list() == [[25.0]]
+    assert stack.jec.cache_arguments == [None]
 
 
 def test_corrected_jets_factory_rewraps_without_awkward_util(monkeypatch):
@@ -150,7 +199,7 @@ def test_corrected_jets_factory_rewraps_without_awkward_util(monkeypatch):
         monkeypatch.delattr(ak._util, attr, raising=False)
 
     factory = CorrectedJetsFactory(name_map, JECStack())
-    corrected_jets = factory.build(jets, lazy_cache=None)
+    corrected_jets = factory.build(jets)
 
     assert len(corrected_jets) == len(jets)
     assert ak.to_list(ak.num(corrected_jets, axis=1)) == ak.to_list(

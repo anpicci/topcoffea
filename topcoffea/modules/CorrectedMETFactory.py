@@ -169,7 +169,7 @@ class CorrectedMETFactory(object):
                     self.name_map["ptRaw"],
                 ),
                 length=length,
-                cache={},
+                cache=lazy_cache,
             )
 
         out_parms = out.layout.parameters
