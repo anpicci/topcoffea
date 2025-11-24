@@ -9,6 +9,13 @@ if not hasattr(awkward, "virtual"):
 
     awkward.virtual = _virtual
 
+if not hasattr(awkward, "materialized"):
+
+    def _materialized(array):
+        return array
+
+    awkward.materialized = _materialized
+
 def corrected_polar_met(met_pt, met_phi, jet_pt, jet_phi, jet_pt_orig, deltas=None):
     sj, cj = numpy.sin(jet_phi), numpy.cos(jet_phi)
     x = met_pt * numpy.cos(met_phi) + awkward.sum(
@@ -43,7 +50,11 @@ class CorrectedMETFactory(object):
 
     def build(self, MET, corrected_jets, lazy_cache=None):
         if lazy_cache is not None:
-            lazy_cache = awkward._util.MappingProxy.maybe_wrap(lazy_cache)
+            mapping_proxy = getattr(awkward._util, "MappingProxy", None)
+            if mapping_proxy is not None:
+                maybe_wrap = getattr(mapping_proxy, "maybe_wrap", None)
+                if maybe_wrap is not None:
+                    lazy_cache = maybe_wrap(lazy_cache)
         if not isinstance(MET, awkward.highlevel.Array) or not isinstance(
             corrected_jets, awkward.highlevel.Array
         ):
@@ -52,12 +63,9 @@ class CorrectedMETFactory(object):
             )
 
         length = len(MET)
-        form = awkward.forms.RecordForm(
-            {
-                "pt": MET[self.name_map["METpt"]].layout.form,
-                "phi": MET[self.name_map["METphi"]].layout.form,
-            },
-        )
+        pt_form = MET[self.name_map["METpt"]].layout.form
+        phi_form = MET[self.name_map["METphi"]].layout.form
+        form = awkward.forms.RecordForm(contents=[pt_form, phi_form], fields=["pt", "phi"])
 
         def make_variant(*args):
             variant = copy(MET)
@@ -71,13 +79,13 @@ class CorrectedMETFactory(object):
             variant[self.name_map["METpt"]] = awkward.virtual(
                 lambda: awkward.materialized(corrected_met.pt),
                 length=length,
-                form=form.contents["pt"],
+                form=pt_form,
                 cache=lazy_cache,
             )
             variant[self.name_map["METphi"]] = awkward.virtual(
                 lambda: awkward.materialized(corrected_met.phi),
                 length=length,
-                form=form.contents["phi"],
+                form=phi_form,
                 cache=lazy_cache,
             )
             return variant
