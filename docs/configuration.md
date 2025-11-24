@@ -73,6 +73,13 @@ corrections arrived from a `FactorizedJetCorrector` chain or from the
 correctionlib JSON bundle while keeping the runtime API stable for processors
 that consume the object.【F:topcoffea/modules/JECStack.py†L63-L110】
 
+Factories that consume the stack (`CorrectedJetsFactory`/`CorrectedMETFactory`)
+now default to a cache-free workflow: callers may omit the `lazy_cache`
+argument entirely and the corrected collections will still be produced, in line
+with coffea 0.7's handling of virtual arrays.  Supplying a cache remains
+supported for analyses that want to materialise repeated lookups, but it is no
+longer mandatory for constructing corrected jets or MET.【F:topcoffea/modules/CorrectedJetsFactory.py†L185-L199】【F:topcoffea/modules/CorrectedMETFactory.py†L35-L59】
+
 ## Coffea 2025.7 considerations
 
 Both the executor config and JEC helpers were updated for the Coffea 2025.7
