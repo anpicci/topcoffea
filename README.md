@@ -97,6 +97,15 @@ instructions live in the `topeft` quickstart and workflow guides; refer to those
 documents for end-to-end steps and use the `topcoffea` references above to look
 up configuration and tuple-schema details.
 
+Branch compatibility is now enforced at runtime: Coffea 2025 executors raise if
+the supplied processor does not derive from `coffea.processor.ProcessorABC`.
+`topcoffea` `ch_update_calcoffea` and `topeft` `format_update_anpicci_calcoffea`
+carry matching processor definitions and coffea 2025 pinning so the executor
+accepts `AnalysisProcessor` instances without downgrades. The
+`tests/test_topeft_analysis_processor_executor.py` smoke test imports the
+`topeft` processor and exercises the coffea runtime check to catch branch
+mismatches before they reach data access.
+
 ## Remote environment cache
 
 `topcoffea.modules.remote_environment.get_environment` builds and caches

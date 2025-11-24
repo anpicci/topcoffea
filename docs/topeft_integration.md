@@ -96,6 +96,33 @@ python -m topcoffea.modules.remote_environment
 Following these steps keeps `import topcoffea` working for downstream analyses
 without requiring code edits in the `topeft` repository itself.
 
+## Coffea 2025 executor expectations
+
+Upgrading to the coffea 2025 series adds a runtime guard that requires analysis
+processors to derive from `coffea.processor.ProcessorABC`. The paired branches
+`topcoffea@ch_update_calcoffea` and `topeft@format_update_anpicci_calcoffea`
+carry matching processor definitions and dependency pins so the coffea runner
+accepts `AnalysisProcessor` instances without downgrading the shared
+environment. The `tests/test_topeft_analysis_processor_executor.py` smoke test
+imports the `topeft` processor on this branch and exercises the coffea executor
+type check to flag branch mismatches before reading any events.
+
+## Troubleshooting branch alignment
+
+If the integration smoke test fails with a ProcessorABC error, confirm the
+`topeft` checkout is on the coordinated branch before re-running the suite:
+
+```bash
+cd ../topeft
+git fetch origin
+git checkout format_update_anpicci_calcoffea
+git pull --ff-only
+```
+
+Return to the `topcoffea` checkout, reinstall in editable mode if needed, and
+rerun `pytest` to verify the coffea executor accepts the `topeft`
+`AnalysisProcessor`.
+
 ## Avoid loading vendored copies
 
 Importing `topcoffea` from a directory nested under a `topeft` checkout (for
