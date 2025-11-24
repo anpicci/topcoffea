@@ -32,7 +32,13 @@ def rewrap_recordarray(layout, depth, data):
 def awkward_rewrap(arr, like_what, gfunc):
     required_utils = ("behaviorof", "recursively_apply", "wrap")
     if not all(hasattr(awkward._util, attr) for attr in required_utils):
-        return arr
+        behavior = getattr(like_what, "behavior", None)
+        try:
+            counts = awkward.num(like_what, axis=1)
+        except ValueError:
+            return arr
+        rebuilt = awkward.unflatten(arr, counts, axis=0)
+        return awkward.Array(rebuilt, behavior=behavior)
     behavior = awkward._util.behaviorof(like_what)
     func = partial(gfunc, data=arr.layout)
     layout = awkward.operations.convert.to_layout(like_what)
