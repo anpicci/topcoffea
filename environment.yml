@@ -4,10 +4,12 @@ channels:
 dependencies:
   - coffea=2025.7.3
   - awkward=2.8.7
+  - hist=2.9.*
+  - pandas>=2.2,<2.3
   - ndcctools
   - conda-pack
   - dill
   - xrootd
   - git
   - pyyaml
-  - numpy
+  - numpy=2.0.*

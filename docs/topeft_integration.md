@@ -6,6 +6,27 @@ alongside the `format_update_anpicci_calcoffea` branch in the
 synchronized interface changes, so pulling only one of them can lead to
 mismatched helper signatures or missing CLI flags.
 
+## Pinned analysis stack and environment rebuilds
+
+`topcoffea` and `topeft` share a single dependency stack. Keep the versions
+aligned with the TaskVine-ready pins used by `topeft` to avoid ABI surprises:
+
+* NumPy `2.0.x`
+* pandas `>=2.2,<2.3`
+* hist `2.9.x`
+
+After updating these requirements, refresh the local environment and rebuild the
+TaskVine tarball so workers receive the new wheels:
+
+```bash
+conda env update -f environment.yml --prune
+python -m topcoffea.modules.remote_environment
+```
+
+Using the regenerated archive for both futures and TaskVine runs keeps pandas
+and NumPy compiled against the same ABI and prevents hard-to-diagnose import
+errors.
+
 ## Keep the namespace import available
 
 `topeft` imports `topcoffea` via the plain namespace import
