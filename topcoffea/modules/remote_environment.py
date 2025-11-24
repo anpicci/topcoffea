@@ -21,6 +21,11 @@ logging.basicConfig(level=logging.INFO, format='%(asctime)s:%(levelname)s:%(mess
 env_dir_cache = Path.cwd().joinpath(Path('topeft-envs'))
 
 _CORE_BOOTSTRAP_PACKAGES = {"pip", "conda", "python"}
+_SAFE_CORE_DEFAULTS = {
+    "pip": "pip>=24,<25",
+    "conda": "conda>=24,<25",
+    "python": f"python={sys.version_info[0]}.{sys.version_info[1]}",
+}
 
 py_version = "{}.{}.{}".format(
     sys.version_info[0], sys.version_info[1], sys.version_info[2]
@@ -101,20 +106,28 @@ def _sanitize_spec(spec: Dict) -> Dict:
 
     This helper is intentionally conservative: it keeps the original package set intact
     while normalizing package strings to avoid inheriting host-specific constraints.
+
+    >>> _sanitize_spec({"conda": {"channels": ["conda-forge"], "packages": ["pip=25.1=py310"]}, "pip": []})
+    {'conda': {'channels': ['conda-forge'], 'packages': ['pip>=24,<25']}, 'pip': []}
     """
 
     def _sanitize_conda_package(package: str) -> str:
         package = _strip_build_string(package)
         base = _package_basename(package)
-        if base == "pip":
-            # pip 25.x is not yet available on conda-forge; fall back to a safe, widely available range
-            if re.match(r"pip=+25(\.\d+)*$", package) or re.match(r"pip==25(\.\d+)*$", package):
-                return "pip>=24,<25"
+        if base in _CORE_BOOTSTRAP_PACKAGES:
+            return _sanitize_core_package(package)
+        return package
+
+    def _sanitize_pip_package(package: str) -> str:
+        package = _strip_build_string(package)
+        base = _package_basename(package)
+        if base in _CORE_BOOTSTRAP_PACKAGES:
+            return _sanitize_core_package(package)
         return package
 
     sanitized = copy.deepcopy(spec)
     sanitized["conda"]["packages"] = [_sanitize_conda_package(p) for p in sanitized["conda"]["packages"]]
-    sanitized["pip"] = [_strip_build_string(p) for p in sanitized.get("pip", [])]
+    sanitized["pip"] = [_sanitize_pip_package(p) for p in sanitized.get("pip", [])]
     return sanitized
 
 
@@ -129,6 +142,58 @@ def _package_basename(package: str) -> str:
 
     # split on the first comparison/operator token
     return re.split(r"[=<>!~]", package, maxsplit=1)[0]
+
+
+def _sanitize_core_package(package: str) -> str:
+    package = _strip_build_string(package)
+    base = _package_basename(package)
+    version = _extract_equality_version(package, base)
+
+    if base == "pip":
+        if version and _version_at_least(version, (25,)):
+            return _SAFE_CORE_DEFAULTS["pip"]
+    elif base == "conda":
+        if version and _version_at_least(version, (25,)):
+            return _SAFE_CORE_DEFAULTS["conda"]
+    elif base == "python":
+        if version:
+            python_mm = _major_minor(version)
+            if python_mm:
+                return f"python={python_mm[0]}.{python_mm[1]}"
+    return package
+
+
+def _extract_equality_version(package: str, base: str) -> Optional[str]:
+    match = re.match(rf"^{re.escape(base)}={{1,2}}([^<>=!~]+)$", package)
+    if match:
+        return match.group(1)
+    return None
+
+
+def _major_minor(version: str) -> Optional[tuple[int, int]]:
+    pieces = _version_tuple(version)
+    if len(pieces) >= 2:
+        return pieces[0], pieces[1]
+    return None
+
+
+def _version_at_least(version: str, minimum: tuple[int, ...]) -> bool:
+    parsed = _version_tuple(version)
+    if not parsed:
+        return False
+    padded = parsed + (0,) * (len(minimum) - len(parsed))
+    target = minimum + (0,) * (len(padded) - len(minimum))
+    return padded >= target
+
+
+def _version_tuple(version: str) -> tuple[int, ...]:
+    parts: List[int] = []
+    for token in re.split(r"[._-]", version):
+        if token.isdigit():
+            parts.append(int(token))
+        else:
+            break
+    return tuple(parts)
 
 
 def _create_env(env_name: str, spec: Dict, force: bool = False):
