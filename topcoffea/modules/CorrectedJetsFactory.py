@@ -5,6 +5,13 @@ from functools import partial, reduce
 import operator
 from topcoffea.modules.JECStack import JECStack
 
+if not hasattr(awkward, "virtual"):
+
+    def _virtual(gfunc, args=(), cache=None, length=None, form=None):
+        return gfunc(*args)
+
+    awkward.virtual = _virtual
+
 _stack_parts = ["jec", "junc", "jer", "jersf"]
 _MIN_JET_ENERGY = numpy.array(1e-2, dtype=numpy.float32)
 _ONE_F32 = numpy.array(1.0, dtype=numpy.float32)
@@ -23,6 +30,9 @@ def rewrap_recordarray(layout, depth, data):
     return None
 
 def awkward_rewrap(arr, like_what, gfunc):
+    required_utils = ("behaviorof", "recursively_apply", "wrap")
+    if not all(hasattr(awkward._util, attr) for attr in required_utils):
+        return arr
     behavior = awkward._util.behaviorof(like_what)
     func = partial(gfunc, data=arr.layout)
     layout = awkward.operations.convert.to_layout(like_what)
@@ -182,10 +192,9 @@ class CorrectedJetsFactory(object):
                 " Please supply mappings for these variables!"
             )
 
-    def build(self, jets, lazy_cache):
-        if lazy_cache is None:
-            raise Exception("CorrectedJetsFactory requires an awkward-array cache to function correctly.")
-        lazy_cache = awkward._util.MappingProxy.maybe_wrap(lazy_cache)
+    def build(self, jets, lazy_cache=None):
+        if lazy_cache is not None:
+            lazy_cache = awkward._util.MappingProxy.maybe_wrap(lazy_cache)
         if not isinstance(jets, awkward.highlevel.Array):
             raise Exception("'jets' must be an awkward > 1.0.0 array of some kind!")
 

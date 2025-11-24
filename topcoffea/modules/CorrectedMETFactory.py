@@ -2,6 +2,13 @@ import awkward
 import numpy
 from copy import copy
 
+if not hasattr(awkward, "virtual"):
+
+    def _virtual(gfunc, args=(), cache=None, length=None, form=None):
+        return gfunc(*args)
+
+    awkward.virtual = _virtual
+
 def corrected_polar_met(met_pt, met_phi, jet_pt, jet_phi, jet_pt_orig, deltas=None):
     sj, cj = numpy.sin(jet_phi), numpy.cos(jet_phi)
     x = met_pt * numpy.cos(met_phi) + awkward.sum(
@@ -34,12 +41,9 @@ class CorrectedMETFactory(object):
 
         self.name_map = name_map
 
-    def build(self, MET, corrected_jets, lazy_cache):
-        if lazy_cache is None:
-            raise Exception(
-                "CorrectedMETFactory requires a awkward-array cache to function correctly."
-            )
-        lazy_cache = awkward._util.MappingProxy.maybe_wrap(lazy_cache)
+    def build(self, MET, corrected_jets, lazy_cache=None):
+        if lazy_cache is not None:
+            lazy_cache = awkward._util.MappingProxy.maybe_wrap(lazy_cache)
         if not isinstance(MET, awkward.highlevel.Array) or not isinstance(
             corrected_jets, awkward.highlevel.Array
         ):
