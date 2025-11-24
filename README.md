@@ -9,6 +9,10 @@ pip install -e .
 
 When pairing this repository with [`topeft`](https://github.com/TopEFT/topeft), use the `run3_test_mmerged` branch of `topcoffea` alongside the `run3_test_mmerged_anpicci` branch of `topeft` to match the maintained workflow.
 
+## Remote environment compatibility
+
+`topcoffea.modules.remote_environment` assembles a reproducible environment specification before calling `poncho_package_create`. The spec is sanitized to stay compatible across hosts: build strings are stripped, and any strict pins for bootstrapping tools (`pip`, `conda`, `python`) that are unavailable on conda-forge are relaxed to safe defaults (for example `pip>=24,<25`). Downstream callers can rely on the sanitized spec to avoid inheriting site-specific package revisions while keeping the original package list intact.
+
 ### Side-by-side development checklist
 
 When working on `topcoffea` and `topeft` together from sibling checkouts:
