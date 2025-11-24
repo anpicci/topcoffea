@@ -35,10 +35,10 @@ def awkward_rewrap(arr, like_what, gfunc):
         behavior = getattr(like_what, "behavior", None)
         try:
             counts = awkward.num(like_what, axis=1)
+            rebuilt = awkward.unflatten(arr, counts, axis=0)
+            return awkward.Array(rebuilt, behavior=behavior)
         except ValueError:
             return arr
-        rebuilt = awkward.unflatten(arr, counts, axis=0)
-        return awkward.Array(rebuilt, behavior=behavior)
     behavior = awkward._util.behaviorof(like_what)
     func = partial(gfunc, data=arr.layout)
     layout = awkward.operations.convert.to_layout(like_what)
@@ -199,8 +199,13 @@ class CorrectedJetsFactory(object):
             )
 
     def build(self, jets, lazy_cache=None):
-        if lazy_cache is not None:
-            lazy_cache = awkward._util.MappingProxy.maybe_wrap(lazy_cache)
+        if lazy_cache is None:
+            lazy_cache = {}
+        mapping_proxy = getattr(awkward._util, "MappingProxy", None)
+        if mapping_proxy is not None:
+            maybe_wrap = getattr(mapping_proxy, "maybe_wrap", None)
+            if maybe_wrap is not None:
+                lazy_cache = maybe_wrap(lazy_cache)
         if not isinstance(jets, awkward.highlevel.Array):
             raise Exception("'jets' must be an awkward > 1.0.0 array of some kind!")
 
