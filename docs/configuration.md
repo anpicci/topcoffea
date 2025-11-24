@@ -78,7 +78,9 @@ now default to a cache-free workflow: callers may omit the `lazy_cache`
 argument entirely and the corrected collections will still be produced, in line
 with coffea 0.7's handling of virtual arrays.  Supplying a cache remains
 supported for analyses that want to materialise repeated lookups, but it is no
-longer mandatory for constructing corrected jets or MET.【F:topcoffea/modules/CorrectedJetsFactory.py†L185-L199】【F:topcoffea/modules/CorrectedMETFactory.py†L35-L59】
+longer mandatory for constructing corrected jets or MET, and using a cache is
+discouraged with newer coffea releases where the lazy plumbing is optional and
+skipping it avoids potential compatibility problems.【F:topcoffea/modules/CorrectedJetsFactory.py†L185-L199】【F:topcoffea/modules/CorrectedMETFactory.py†L35-L59】
 
 ## Coffea 2025.7 considerations
 

@@ -38,7 +38,7 @@ def test_corrected_met_factory_ignores_missing_mapping_proxy(monkeypatch):
     )
 
     factory = CorrectedMETFactory(name_map)
-    corrected_met = factory.build(met, corrected_jets, lazy_cache={})
+    corrected_met = factory.build(met, corrected_jets)
 
     assert len(corrected_met) == len(met)
     assert corrected_met[name_map["METpt"] + "_orig"][0] == met[name_map["METpt"]][0]

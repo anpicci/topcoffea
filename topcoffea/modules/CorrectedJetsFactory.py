@@ -199,10 +199,8 @@ class CorrectedJetsFactory(object):
             )
 
     def build(self, jets, lazy_cache=None):
-        if lazy_cache is None:
-            lazy_cache = {}
         mapping_proxy = getattr(awkward._util, "MappingProxy", None)
-        if mapping_proxy is not None:
+        if lazy_cache is not None and mapping_proxy is not None:
             maybe_wrap = getattr(mapping_proxy, "maybe_wrap", None)
             if maybe_wrap is not None:
                 lazy_cache = maybe_wrap(lazy_cache)
