@@ -12,7 +12,7 @@ from importlib import import_module
 from types import ModuleType
 from typing import Any
 
-from . import env_cache, remote_environment
+from . import env_cache, executor, remote_environment
 
 _SUBMODULE_ALIASES = {
     # Historical capitalization preferred by downstream projects.
@@ -21,6 +21,7 @@ _SUBMODULE_ALIASES = {
 
 __all__ = [
     "env_cache",
+    "executor",
     "remote_environment",
 ]
 

@@ -6,6 +6,14 @@ alongside the `format_update_anpicci_calcoffea` branch in the
 synchronized interface changes, so pulling only one of them can lead to
 mismatched helper signatures or missing CLI flags.
 
+The shared executor helpers on this branch expose a small `ExecutorFactory`
+that wraps `coffea.processor.Runner`.  The factory validates processors against
+either Coffea's classic `ProcessorABC` or the CalCoffea-compatible
+`CalProcessorABC`, ensuring the `topeft` `AnalysisProcessor` (which still
+derives from `ProcessorABC`) runs without modification while leaving room for
+future CalCoffea migrations. Downstream users do not need to change their
+processor inheritance as long as they derive from one of these ABCs.
+
 ## Pinned analysis stack and environment rebuilds
 
 `topcoffea` and `topeft` share a single dependency stack. Keep the versions
