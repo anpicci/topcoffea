@@ -11,7 +11,7 @@ from __future__ import annotations
 
 import argparse
 from dataclasses import dataclass
-from typing import Dict, Iterable, Mapping, Optional, Sequence, Tuple
+from typing import Any, Callable, Dict, Iterable, Mapping, Optional, Sequence, Tuple
 
 from . import remote_environment
 
@@ -25,6 +25,7 @@ __all__ = [
     "TASKVINE_ENVIRONMENT_AUTO",
     "TASKVINE_EPILOG",
     "TASKVINE_EXTRA_PIP_LOCAL",
+    "run_coffea_runner",
 ]
 
 DEFAULT_EXECUTOR = "taskvine"
@@ -221,3 +222,20 @@ def parse_port_range(port: Optional[Sequence[int] | str]) -> Tuple[int, int]:
     if low > high:
         raise ValueError("Port range must be specified as MIN-MAX with MIN <= MAX.")
     return int(low), int(high)
+
+
+def run_coffea_runner(
+    runner: Callable[[Mapping[str, Sequence[str]], Any, str], Any],
+    fileset: Mapping[str, Sequence[str]],
+    processor_instance: Any,
+    treename: str,
+):
+    """Invoke :class:`coffea.processor.Runner` using the canonical argument order.
+
+    Coffea's :class:`~coffea.processor.Runner` is typically called as ``runner(fileset, processor_instance, treename)``.
+    Downstream projects sometimes proxy this call and risk swapping positional parameters, which can surface as
+    ``ProcessorABC`` errors when the processor instance is no longer passed in the expected position.  This helper keeps
+    the invocation order centralised and documented to reduce regressions when upgrading coffea.
+    """
+
+    return runner(fileset, processor_instance, treename)
