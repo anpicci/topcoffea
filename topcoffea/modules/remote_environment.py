@@ -1,4 +1,5 @@
 #! /usr/bin/env python
+import copy
 import json
 import hashlib
 import subprocess
@@ -18,6 +19,8 @@ logger = logging.getLogger()
 logging.basicConfig(level=logging.INFO, format='%(asctime)s:%(levelname)s:%(message)s')
 
 env_dir_cache = Path.cwd().joinpath(Path('topeft-envs'))
+
+_CORE_BOOTSTRAP_PACKAGES = {"pip", "conda", "python"}
 
 py_version = "{}.{}.{}".format(
     sys.version_info[0], sys.version_info[1], sys.version_info[2]
@@ -72,6 +75,9 @@ def _check_current_env(spec: Dict):
             for i in range(len(spec['conda']['packages'])):
                 # ignore packages where a version is already specified
                 package = spec['conda']['packages'][i]
+                pkg_name = _package_basename(package)
+                if pkg_name in _CORE_BOOTSTRAP_PACKAGES:
+                    continue
                 if not re.search("[!~=<>].*$", package):
                     if package in conda_deps:
                         spec['conda']['packages'][i] = conda_deps[package]
@@ -80,10 +86,49 @@ def _check_current_env(spec: Dict):
             for i in range(len(spec['pip'])):
                 # ignore packages where a version is already specified
                 package = spec['pip'][i]
+                pkg_name = _package_basename(package)
+                if pkg_name in _CORE_BOOTSTRAP_PACKAGES:
+                    continue
                 if not re.search("[!~=<>].*$", package):
                     if package in pip_deps:
                         spec['pip'][i] = pip_deps[package]
     return spec
+
+
+def _sanitize_spec(spec: Dict) -> Dict:
+    """
+    Relax pins for core bootstrap packages that may not exist on conda-forge and drop build strings.
+
+    This helper is intentionally conservative: it keeps the original package set intact
+    while normalizing package strings to avoid inheriting host-specific constraints.
+    """
+
+    def _sanitize_conda_package(package: str) -> str:
+        package = _strip_build_string(package)
+        base = _package_basename(package)
+        if base == "pip":
+            # pip 25.x is not yet available on conda-forge; fall back to a safe, widely available range
+            if re.match(r"pip=+25(\.\d+)*$", package) or re.match(r"pip==25(\.\d+)*$", package):
+                return "pip>=24,<25"
+        return package
+
+    sanitized = copy.deepcopy(spec)
+    sanitized["conda"]["packages"] = [_sanitize_conda_package(p) for p in sanitized["conda"]["packages"]]
+    sanitized["pip"] = [_strip_build_string(p) for p in sanitized.get("pip", [])]
+    return sanitized
+
+
+def _strip_build_string(package: str) -> str:
+    """Drop build-string segments (the third '=' token) from conda package specs."""
+
+    return re.sub(r"^([^=]+=[^=,]+)=.*$", r"\1", package)
+
+
+def _package_basename(package: str) -> str:
+    """Return the base package name without version or comparison operators."""
+
+    # split on the first comparison/operator token
+    return re.split(r"[=<>!~]", package, maxsplit=1)[0]
 
 
 def _create_env(env_name: str, spec: Dict, force: bool = False):
@@ -97,6 +142,7 @@ def _create_env(env_name: str, spec: Dict, force: bool = False):
     with tempfile.NamedTemporaryFile() as f:
         logger.info("Checking current conda environment")
         spec = _check_current_env(spec)
+        spec = _sanitize_spec(spec)
         packages_json = json.dumps(spec)
         logger.info("base env specification:{}".format(packages_json))
         f.write(packages_json.encode())
@@ -191,8 +237,8 @@ def get_environment(
     # ensure cache directory exists
     Path(env_dir_cache).mkdir(parents=True, exist_ok=True)
 
-    spec = dict(default_modules)
-    spec_pip_local_to_watch = dict(pip_local_to_watch)
+    spec = copy.deepcopy(default_modules)
+    spec_pip_local_to_watch = copy.deepcopy(pip_local_to_watch)
     if extra_conda:
         spec["conda"]["packages"].extend(extra_conda)
     if extra_pip:
