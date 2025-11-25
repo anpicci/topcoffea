@@ -16,7 +16,9 @@ The shared `coffea2025` Conda environment distributed with `topcoffea` and
 `conda-pack`, etc.) so local installs mirror the remote cache. CI hashes
 `environment.yml` against the stored upstream baseline to catch drift. Provision
 or refresh the environment with the commands below before running processors so
-downstream projects see the same toolchain that CI exercises:
+downstream projects see the same toolchain that CI exercises. Jet corrections in
+`CorrectedJetsFactory` now execute eagerly without awkward or correctionlib
+lazy caches, which means `awkward>=2` and coffea `>=0.7` are required:
 
 ```bash
 conda env create -f environment.yml  # or: conda env update -f environment.yml --prune
