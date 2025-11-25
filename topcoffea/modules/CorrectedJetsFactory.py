@@ -160,8 +160,8 @@ class CorrectedJetsFactory(object):
                 if sf is None:
                     raise ValueError(f"Correction {lvl} not found in self.corrections")
 
-                    inputs = get_corr_inputs(jets=jets, corr_obj=sf, name_map=jec_name_map, corrections=cumCorr)
-                    correction = sf.evaluate(*inputs).astype(dtype=numpy.float32)
+                inputs = get_corr_inputs(jets=jets, corr_obj=sf, name_map=jec_name_map, corrections=cumCorr)
+                correction = sf.evaluate(*inputs).astype(dtype=numpy.float32)
                 corrections_list.append(correction)
                 if total_correction is None:
                     total_correction = numpy.ones_like(correction, dtype=numpy.float32)
