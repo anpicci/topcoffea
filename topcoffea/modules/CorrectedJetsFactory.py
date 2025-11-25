@@ -17,6 +17,23 @@ _JERSF_FORM = {
     "primitive": "float32",
 }
 
+
+def _ensure_jagged(array, counts):
+    """Ensure per-jet arrays follow the event-level jagged structure."""
+
+    arr = awkward.Array(array)
+    total_items = int(awkward.sum(counts))
+
+    # Already jagged/list-like: leave untouched.
+    if awkward._util.is_list_like(arr.layout):
+        return arr
+
+    # RegularArray outputs (e.g. JER scale factors) arrive flattened; reshape to events.
+    if len(arr) == total_items:
+        return awkward.unflatten(arr, counts, axis=0)
+
+    return arr
+
 def rewrap_recordarray(layout, depth, data):
     if isinstance(layout, awkward.layout.RecordArray):
         return lambda: data
@@ -53,7 +70,17 @@ def jer_smear(
     jet_energy_resolution,
     jet_resolution_rand_gauss,
     jet_energy_resolution_scale_factor,
+    counts,
 ):
+    jetPt = _ensure_jagged(jetPt, counts)
+    etaJet = _ensure_jagged(etaJet, counts)
+    jet_energy_resolution = _ensure_jagged(jet_energy_resolution, counts)
+    jet_resolution_rand_gauss = _ensure_jagged(jet_resolution_rand_gauss, counts)
+    jet_energy_resolution_scale_factor = _ensure_jagged(
+        jet_energy_resolution_scale_factor, counts
+    )
+    pt_gen = _ensure_jagged(pt_gen, counts)
+
     pt_gen = pt_gen if not forceStochastic else None
     if not isinstance(jetPt, awkward.highlevel.Array):
         raise Exception("'jetPt' must be an awkward array of some kind!")
@@ -85,7 +112,7 @@ def jer_smear(
         awkward.operations.convert.to_layout(jetPt), getfunction
     )
     smearfact = awkward._util.wrap(smearfact, awkward._util.behaviorof(jetPt))
-    return smearfact
+    return awkward.flatten(smearfact)
 
 # Wrapper function to apply jec corrections
 def rawvar_jec(jecval, rawvar, lazy_cache):
@@ -193,6 +220,8 @@ class CorrectedJetsFactory(object):
         fields = awkward.fields(jets)
         if len(fields) == 0:
             raise Exception("Empty record, please pass a jet object with at least {self.real_sig} defined!")
+
+        counts = awkward.num(jets[self.name_map["JetPt"]], axis=1)
 
         out = awkward.flatten(jets)
         wrap = partial(awkward_rewrap, like_what=jets, gfunc=rewrap_recordarray)
@@ -380,6 +409,7 @@ class CorrectedJetsFactory(object):
                     awkward.values_astype(out_dict["jet_energy_resolution"], numpy.float32),
                     awkward.values_astype(out_dict["jet_resolution_rand_gauss"], numpy.float32),
                     awkward.values_astype(out_dict["jet_energy_resolution_scale_factor"], numpy.float32),
+                    counts,
                 ),
                 cache=lazy_cache,
             )
@@ -417,6 +447,7 @@ class CorrectedJetsFactory(object):
                     awkward.values_astype(out_dict["jet_energy_resolution"], numpy.float32),
                     awkward.values_astype(out_dict["jet_resolution_rand_gauss"], numpy.float32),
                     awkward.values_astype(out_dict["jet_energy_resolution_scale_factor"], numpy.float32),
+                    counts,
                 ),
                 cache=lazy_cache,
             )
@@ -459,6 +490,7 @@ class CorrectedJetsFactory(object):
                     awkward.values_astype(out_dict["jet_energy_resolution"], numpy.float32),
                     awkward.values_astype(out_dict["jet_resolution_rand_gauss"], numpy.float32),
                     awkward.values_astype(out_dict["jet_energy_resolution_scale_factor"], numpy.float32),
+                    counts,
                 ),
                 cache=lazy_cache,
             )
