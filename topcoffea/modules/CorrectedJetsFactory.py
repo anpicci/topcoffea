@@ -335,7 +335,19 @@ class CorrectedJetsFactory(object):
 
         def _ensure_jagged(value):
             arr = value if isinstance(value, ak.Array) else ak.Array(value)
-            return ak.unflatten(arr, counts, axis=0) if len(arr) == total_jets else arr
+
+            if len(arr) != total_jets:
+                return arr
+
+            try:
+                per_element_counts = ak.num(arr, axis=1)
+            except ValueError:
+                return ak.unflatten(arr, counts, axis=0)
+
+            if len(per_element_counts) == len(counts) and ak.sum(per_element_counts) == total_jets:
+                return arr
+
+            return ak.unflatten(arr, counts, axis=0)
 
         jagged_out = {key: _ensure_jagged(val) for key, val in out_dict.items()}
 
