@@ -228,7 +228,7 @@ class CorrectedJetsFactory(object):
                 jer_out_parms = dict(parameters)
                 jer_out_parms["corrected"] = True
                 jer_out = ak.zip(jagged_out, depth_limit=1, parameters=jer_out_parms, behavior=flat_jets.behavior)
-                jerjets = ak.unflatten(jer_out, counts, axis=0)
+                jerjets = jer_out
 
                 jet_energy_resolution = None
                 jet_energy_resolution_scale_factor = None
@@ -321,7 +321,7 @@ class CorrectedJetsFactory(object):
                 junc_out_parms = dict(parameters)
                 junc_out_parms["corrected"] = True
                 junc_out = ak.zip(jagged_out, depth_limit=1, parameters=junc_out_parms, behavior=flat_jets.behavior)
-                juncjets = ak.unflatten(junc_out, counts, axis=0)
+                juncjets = junc_out
 
                 uncnames, uncvalues = [], []
                 for junc_name in self.jec_stack.jec_uncsources_clib:
