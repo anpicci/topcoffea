@@ -267,6 +267,64 @@ def test_corrected_jets_factory_jes_and_nominal_shapes():
     assert ak.num(jes.down[name_map["JetPt"]], axis=1).to_list() == [2]
 
 
+def test_corrected_jets_factory_clib_jes_handles_multijet_events():
+    name_map = _example_name_map()
+    jets = ak.Array(
+        [
+            [
+                {"pt": 30.0, "mass": 3.0, "pt_raw": 29.0, "mass_raw": 3.0, "eta": 0.1, "phi": 0.0, "pt_gen": 28.0},
+                {"pt": 40.0, "mass": 4.0, "pt_raw": 39.0, "mass_raw": 4.0, "eta": -0.2, "phi": 0.2, "pt_gen": 39.0},
+            ],
+            [
+                {"pt": 25.0, "mass": 2.5, "pt_raw": 24.5, "mass_raw": 2.5, "eta": 0.4, "phi": -0.1, "pt_gen": 24.0},
+                {"pt": 35.0, "mass": 3.5, "pt_raw": 34.0, "mass_raw": 3.5, "eta": 0.6, "phi": 0.3, "pt_gen": 33.5},
+                {"pt": 50.0, "mass": 5.0, "pt_raw": 49.0, "mass_raw": 5.0, "eta": -0.5, "phi": -0.2, "pt_gen": 49.5},
+            ],
+        ]
+    )
+
+    counts = ak.num(jets, axis=1)
+
+    class FakeInput:
+        def __init__(self, name):
+            self.name = name
+
+    class FakeClibCorrection:
+        def __init__(self, inputs, value):
+            self.inputs = [FakeInput(name) for name in inputs]
+            self.value = value
+
+        def evaluate(self, *args):
+            target = args[0] if len(args) > 0 else ak.Array([self.value] * ak.sum(counts))
+            return np.ones_like(ak.to_numpy(target), dtype=np.float32) * self.value
+
+    class FakeJuncCorrection:
+        def __init__(self, value):
+            self.inputs = [FakeInput("JetPt")]
+            self.value = value
+
+        def evaluate(self, JetPt):
+            return np.full(len(counts), self.value, dtype=np.float32)
+
+    stack = JECStack.__new__(JECStack)
+    stack.use_clib = True
+    stack.corrections = {
+        "Fake_L1_AK4": FakeClibCorrection(["JetPt"], 1.0),
+        "Fake_Total_AK4": FakeJuncCorrection(0.05),
+    }
+    stack.jec_names_clib = ["Fake_L1_AK4"]
+    stack.jer_names_clib = []
+    stack.jec_uncsources_clib = ["Fake_Total_AK4"]
+    stack.savecorr = False
+
+    factory = CorrectedJetsFactory(name_map, stack)
+    corrected_jets = factory.build(jets)
+
+    assert ak.num(corrected_jets[name_map["JetPt"]], axis=1).to_list() == counts.to_list()
+    jes_total = corrected_jets["JES_Total"]
+    assert ak.num(jes_total.up[name_map["JetPt"]], axis=1).to_list() == counts.to_list()
+    assert ak.num(jes_total.down[name_map["JetPt"]], axis=1).to_list() == counts.to_list()
+
 def test_corrected_jets_factory_avoids_ak_stack():
     name_map = _example_name_map()
     jets = ak.Array(

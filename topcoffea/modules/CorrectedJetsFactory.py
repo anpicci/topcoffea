@@ -1,3 +1,9 @@
+"""Factories for building jet collections with JEC/JER/JES applied.
+
+The clib JES branch now handles jagged inputs without redundant unflattening,
+operating on flattened arrays before rebuilding the jagged structure.
+"""
+
 import numpy
 import awkward as ak
 import warnings
@@ -337,9 +343,16 @@ class CorrectedJetsFactory(object):
 
                     inputs = get_corr_inputs(jets=juncjets, corr_obj=sf, name_map=junc_name_map)
                     unc = ak.values_astype(sf.evaluate(*inputs), numpy.float32)
+                    unc_layout = ak.to_layout(unc)
+                    if getattr(unc_layout, "is_list", False):
+                        jagged_unc = unc
+                    elif len(unc) == total_jets:
+                        jagged_unc = ak.unflatten(unc, counts, axis=0)
+                    else:
+                        jagged_unc = unc
                     central = ak.ones_like(jagged_out[self.name_map["JetPt"]])
-                    unc_up = central + _ensure_jagged(unc, counts, total_jets)
-                    unc_down = central - _ensure_jagged(unc, counts, total_jets)
+                    unc_up = central + jagged_unc
+                    unc_down = central - jagged_unc
                     uncnames.append(junc_name.split("_")[-2])
                     uncvalues.append(ak.concatenate([unc_up[..., None], unc_down[..., None]], axis=-1))
                 del juncjets
