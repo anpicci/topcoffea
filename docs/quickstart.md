@@ -21,7 +21,9 @@ The repository ships an `environment.yml` aligned with the shared
 `coffea2025` toolchain (`coffea=2025.7.3`, `awkward=2.8.7`, `ndcctools`,
 `conda-pack`, etc.). Create or update that environment before running
 downstream entry points, then rebuild the TaskVine cache if workers rely on the
-packaged environment.
+packaged environment. Jet corrections now run eagerly without awkward virtual
+caches, so keep `awkward>=2` and coffea `>=0.7` in sync with the pinned
+environment to avoid AttributeError crashes when applying JEC/JER variations.
 
 ## Configure executors and options
 
