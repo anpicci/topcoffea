@@ -18,6 +18,12 @@ def _random_gauss(counts, rng):
 def _ensure_jagged(arr, counts, total):
     array = arr if isinstance(arr, ak.Array) else ak.Array(arr)
     layout = ak.to_layout(array)
+    if isinstance(layout, ak.contents.RegularArray):
+        if len(array) == total:
+            return ak.unflatten(array, counts, axis=0)
+        if len(array) == len(counts):
+            return ak.unflatten(array, counts, axis=0)
+        return array
     if getattr(layout, "is_list", False):
         return array
     if len(array) == total:
