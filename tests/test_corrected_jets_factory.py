@@ -92,7 +92,7 @@ def test_corrected_jets_factory_allows_corrections_without_cache():
     stack.jersf = None
 
     factory = CorrectedJetsFactory(name_map, stack)
-    corrected_jets = factory.build(jets, lazy_cache={"ignored": True})
+    corrected_jets = factory.build(jets)
 
     assert corrected_jets[name_map["JetPt"]].to_list() == [[25.0]]
     assert len(stack.jec.calls) == 1
@@ -153,3 +153,113 @@ def test_corrected_jets_factory_handles_jer_without_cache():
     assert ak.to_list(ak.flatten(corrected_jets[name_map["JetPt"]]))[0] > 0.0
     jer_up = ak.to_list(ak.ravel(corrected_jets["JER"].up[name_map["JetPt"]]))
     assert jer_up[0] > 0.0
+
+
+def test_corrected_jets_factory_produces_consistent_shapes_for_jer():
+    name_map = _example_name_map()
+    jets = ak.Array(
+        [
+            [
+                {
+                    "pt": 30.0,
+                    "mass": 3.5,
+                    "pt_raw": 29.5,
+                    "mass_raw": 3.5,
+                    "eta": 0.2,
+                    "phi": 0.0,
+                    "pt_gen": 28.0,
+                },
+                {
+                    "pt": 50.0,
+                    "mass": 5.0,
+                    "pt_raw": 48.0,
+                    "mass_raw": 5.0,
+                    "eta": -0.6,
+                    "phi": 0.3,
+                    "pt_gen": 49.0,
+                },
+            ],
+            [
+                {
+                    "pt": 40.0,
+                    "mass": 4.0,
+                    "pt_raw": 39.0,
+                    "mass_raw": 4.0,
+                    "eta": 0.9,
+                    "phi": -0.2,
+                    "pt_gen": 38.5,
+                }
+            ],
+        ]
+    )
+
+    class FakeResolution:
+        signature = ("JetPt", "JetEta")
+
+        def getResolution(self, JetPt, JetEta):
+            return ak.ones_like(JetPt, dtype=np.float32) * 0.1
+
+    class FakeScaleFactor:
+        signature = ("JetEta",)
+
+        def getScaleFactor(self, JetEta):
+            values = np.array([1.0, 1.05, 0.95], dtype=np.float32)
+            tiled = np.tile(values, (ak.to_numpy(ak.flatten(JetEta, axis=None)).size, 1))
+            return ak.Array(tiled)
+
+    stack = JECStack()
+    stack.jec = None
+    stack.junc = None
+    stack.jer = FakeResolution()
+    stack.jersf = FakeScaleFactor()
+
+    factory = CorrectedJetsFactory(name_map, stack)
+    corrected_jets = factory.build(jets)
+
+    assert ak.num(corrected_jets[name_map["JetPt"]], axis=1).to_list() == [2, 1]
+    assert ak.num(corrected_jets["JER"].up[name_map["JetPt"]], axis=1).to_list() == [2, 1]
+
+
+def test_corrected_jets_factory_jes_and_nominal_shapes():
+    name_map = _example_name_map()
+    jets = ak.Array(
+        [
+            [
+                {"pt": 20.0, "mass": 2.0, "pt_raw": 19.0, "mass_raw": 2.0, "eta": 0.2, "phi": 0.1, "pt_gen": 19.5},
+                {"pt": 45.0, "mass": 4.0, "pt_raw": 44.0, "mass_raw": 4.0, "eta": -0.3, "phi": -0.2, "pt_gen": 44.5},
+            ]
+        ]
+    )
+
+    class FakeJEC:
+        signature = ("JetPt",)
+
+        def getCorrection(self, JetPt):
+            return ak.ones_like(JetPt, dtype=np.float32) * 1.01
+
+    class FakeJunc:
+        signature = ("JetPt",)
+
+        def getUncertainty(self, JetPt):
+            unc = ak.ones_like(ak.flatten(JetPt, axis=None), dtype=np.float32) * 0.02
+            unc_np = ak.to_numpy(unc)
+            factors = ak.Array(np.stack([1 + unc_np, 1 - unc_np], axis=1))
+            return [("Total", factors)]
+
+    stack = JECStack()
+    stack.jec = FakeJEC()
+    stack.junc = FakeJunc()
+    stack.jer = None
+    stack.jersf = None
+
+    factory = CorrectedJetsFactory(name_map, stack)
+    corrected_jets = factory.build(jets)
+
+    np.testing.assert_allclose(
+        ak.to_numpy(ak.flatten(corrected_jets[name_map["JetPt"]])),
+        np.array([19.19, 44.44], dtype=np.float32),
+        rtol=1e-5,
+    )
+    jes = corrected_jets["JES_Total"]
+    assert ak.num(jes.up[name_map["JetPt"]], axis=1).to_list() == [2]
+    assert ak.num(jes.down[name_map["JetPt"]], axis=1).to_list() == [2]

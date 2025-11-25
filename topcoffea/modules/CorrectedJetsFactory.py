@@ -8,8 +8,8 @@ _stack_parts = ["jec", "junc", "jer", "jersf"]
 _MIN_JET_ENERGY = numpy.array(1e-2, dtype=numpy.float32)
 
 
-def rand_gauss(template, randomstate):
-    return ak.Array(randomstate.normal(size=len(template)).astype(numpy.float32))
+def rand_gauss(template, rng):
+    return ak.Array(rng.standard_normal(size=len(template)).astype(numpy.float32))
 
 
 def jer_smear(
@@ -25,14 +25,19 @@ def jer_smear(
     if not isinstance(jetPt, ak.Array):
         raise Exception("'jetPt' must be an awkward array of some kind!")
 
-    pt_gen = ak.zeros_like(jetPt) if forceStochastic else pt_gen
+    jetPt, pt_gen, etaJet, jet_energy_resolution, jet_resolution_rand_gauss = ak.broadcast_arrays(
+        jetPt,
+        ak.zeros_like(jetPt) if forceStochastic else pt_gen,
+        etaJet,
+        jet_energy_resolution,
+        jet_resolution_rand_gauss,
+    )
 
-    jersmear = jet_energy_resolution * jet_resolution_rand_gauss
-    jersf = jet_energy_resolution_scale_factor[..., variation]
+    jersf = ak.broadcast_arrays(jet_energy_resolution_scale_factor[..., variation], jetPt)[0]
     deltaPtRel = (jetPt - pt_gen) / jetPt
     doHybrid = (pt_gen > 0) & (numpy.abs(deltaPtRel) < 3 * jet_energy_resolution)
     detSmear = 1 + (jersf - 1) * deltaPtRel
-    stochSmear = 1 + numpy.sqrt(numpy.maximum(jersf**2 - 1, 0)) * jersmear
+    stochSmear = 1 + numpy.sqrt(numpy.maximum(jersf**2 - 1, 0)) * (jet_energy_resolution * jet_resolution_rand_gauss)
 
     min_jet_pt = _MIN_JET_ENERGY / numpy.cosh(etaJet)
     min_jet_pt_corr = min_jet_pt / jetPt
@@ -109,15 +114,15 @@ class CorrectedJetsFactory(object):
                 f"Missing mapping of {missing} in name_map!" + " Cannot evaluate jet corrections!" + " Please supply mappings for these variables!"
             )
 
-    def build(self, jets, lazy_cache=None):
-        if not isinstance(jets, ak.Array):
-            raise Exception("'jets' must be an awkward > 1.0.0 array of some kind!")
+    def build(self, jets):
+        jets = ak.Array(jets)
 
         fields = ak.fields(jets)
         if len(fields) == 0:
             raise Exception("Empty record, please pass a jet object with at least {self.real_sig} defined!")
 
         counts = ak.num(jets, axis=1)
+        total_jets = int(ak.sum(counts))
         out = ak.flatten(jets)
         parameters = dict(ak.parameters(out) or {})
         parameters["corrected"] = True
@@ -139,7 +144,7 @@ class CorrectedJetsFactory(object):
         if self.tool == "jecstack":
             if self.jec_stack.jec is not None:
                 jec_args = {k: out_dict[jec_name_map[k]] for k in self.jec_stack.jec.signature}
-                total_correction = self.jec_stack.jec.getCorrection(**jec_args)
+                total_correction = ak.Array(self.jec_stack.jec.getCorrection(**jec_args))
             else:
                 total_correction = ak.ones_like(out_dict[self.name_map["JetPt"]])
 
@@ -155,8 +160,8 @@ class CorrectedJetsFactory(object):
                 if sf is None:
                     raise ValueError(f"Correction {lvl} not found in self.corrections")
 
-                inputs = get_corr_inputs(jets=jets, corr_obj=sf, name_map=jec_name_map, corrections=cumCorr)
-                correction = sf.evaluate(*inputs).astype(dtype=numpy.float32)
+                    inputs = get_corr_inputs(jets=jets, corr_obj=sf, name_map=jec_name_map, corrections=cumCorr)
+                    correction = sf.evaluate(*inputs).astype(dtype=numpy.float32)
                 corrections_list.append(correction)
                 if total_correction is None:
                     total_correction = numpy.ones_like(correction, dtype=numpy.float32)
@@ -194,9 +199,7 @@ class CorrectedJetsFactory(object):
 
             if self.tool == "jecstack":
                 jer_args = {k: out_dict[jer_name_map[k]] for k in self.jec_stack.jer.signature}
-                out_dict["jet_energy_resolution"] = ak.Array(
-                    self.jec_stack.jer.getResolution(**jer_args)
-                )
+                out_dict["jet_energy_resolution"] = ak.Array(self.jec_stack.jer.getResolution(**jer_args))
 
                 jersf_args = {k: out_dict[jer_name_map[k]] for k in self.jec_stack.jersf.signature}
                 out_dict["jet_energy_resolution_scale_factor"] = ak.Array(
@@ -228,21 +231,17 @@ class CorrectedJetsFactory(object):
                         correction = ak.values_astype(sf.evaluate(*inputs), numpy.float32)
                     out_dict[outtag] = ak.Array(correction)
 
-            out_dict["jet_resolution_rand_gauss"] = rand_gauss(
-                out_dict[jer_name_map["JetPt"]], numpy.random.mtrand.RandomState()
-            )
-            out_dict["jet_energy_resolution_correction"] = ak.flatten(
-                jer_smear(
-                    variation=0,
-                    forceStochastic=self.forceStochastic,
-                    pt_gen=ak.values_astype(out_dict[jer_name_map["ptGenJet"]], numpy.float32),
-                    jetPt=ak.values_astype(out_dict[jer_name_map["JetPt"]], numpy.float32),
-                    etaJet=ak.values_astype(out_dict[jer_name_map["JetEta"]], numpy.float32),
-                    jet_energy_resolution=ak.values_astype(out_dict.get("jet_energy_resolution", ak.zeros_like(out_dict[jer_name_map["JetPt"]])), numpy.float32),
-                    jet_resolution_rand_gauss=ak.values_astype(out_dict["jet_resolution_rand_gauss"], numpy.float32),
-                    jet_energy_resolution_scale_factor=ak.values_astype(out_dict["jet_energy_resolution_scale_factor"], numpy.float32),
-                ),
-                axis=0,
+            rng = numpy.random.default_rng()
+            out_dict["jet_resolution_rand_gauss"] = rand_gauss(out_dict[jer_name_map["JetPt"]], rng)
+            out_dict["jet_energy_resolution_correction"] = jer_smear(
+                variation=0,
+                forceStochastic=self.forceStochastic,
+                pt_gen=ak.values_astype(out_dict[jer_name_map["ptGenJet"]], numpy.float32),
+                jetPt=ak.values_astype(out_dict[jer_name_map["JetPt"]], numpy.float32),
+                etaJet=ak.values_astype(out_dict[jer_name_map["JetEta"]], numpy.float32),
+                jet_energy_resolution=ak.values_astype(out_dict.get("jet_energy_resolution", ak.zeros_like(out_dict[jer_name_map["JetPt"]])), numpy.float32),
+                jet_resolution_rand_gauss=ak.values_astype(out_dict["jet_resolution_rand_gauss"], numpy.float32),
+                jet_energy_resolution_scale_factor=ak.values_astype(out_dict["jet_energy_resolution_scale_factor"], numpy.float32),
             )
 
             out_dict[self.name_map["JetPt"]] = out_dict["jet_energy_resolution_correction"] * out_dict[jer_name_map["JetPt"]]
@@ -252,18 +251,15 @@ class CorrectedJetsFactory(object):
             out_dict[self.name_map["JetMass"] + "_jer"] = out_dict[self.name_map["JetMass"]]
 
             def build_jer_variant(variation_index):
-                correction = ak.flatten(
-                    jer_smear(
-                        variation=variation_index,
-                        forceStochastic=self.forceStochastic,
-                        pt_gen=ak.values_astype(out_dict[jer_name_map["ptGenJet"]], numpy.float32),
-                        jetPt=ak.values_astype(out_dict[jer_name_map["JetPt"]], numpy.float32),
-                        etaJet=ak.values_astype(out_dict[jer_name_map["JetEta"]], numpy.float32),
-                        jet_energy_resolution=ak.values_astype(out_dict["jet_energy_resolution"], numpy.float32),
-                        jet_resolution_rand_gauss=ak.values_astype(out_dict["jet_resolution_rand_gauss"], numpy.float32),
-                        jet_energy_resolution_scale_factor=ak.values_astype(out_dict["jet_energy_resolution_scale_factor"], numpy.float32),
-                    ),
-                    axis=0,
+                correction = jer_smear(
+                    variation=variation_index,
+                    forceStochastic=self.forceStochastic,
+                    pt_gen=ak.values_astype(out_dict[jer_name_map["ptGenJet"]], numpy.float32),
+                    jetPt=ak.values_astype(out_dict[jer_name_map["JetPt"]], numpy.float32),
+                    etaJet=ak.values_astype(out_dict[jer_name_map["JetEta"]], numpy.float32),
+                    jet_energy_resolution=ak.values_astype(out_dict["jet_energy_resolution"], numpy.float32),
+                    jet_resolution_rand_gauss=ak.values_astype(out_dict["jet_resolution_rand_gauss"], numpy.float32),
+                    jet_energy_resolution_scale_factor=ak.values_astype(out_dict["jet_energy_resolution_scale_factor"], numpy.float32),
                 )
 
                 var_dict = dict(in_dict)
@@ -337,5 +333,10 @@ class CorrectedJetsFactory(object):
                     out_dict[junc_name_map["JetMass"]],
                 )
 
-        flat_out = ak.zip(out_dict, depth_limit=1, parameters=parameters, behavior=out.behavior)
-        return ak.unflatten(flat_out, counts, axis=0)
+        def _ensure_jagged(value):
+            arr = value if isinstance(value, ak.Array) else ak.Array(value)
+            return ak.unflatten(arr, counts, axis=0) if len(arr) == total_jets else arr
+
+        jagged_out = {key: _ensure_jagged(val) for key, val in out_dict.items()}
+
+        return ak.zip(jagged_out, depth_limit=1, parameters=parameters, behavior=out.behavior)
