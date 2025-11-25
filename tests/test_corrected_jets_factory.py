@@ -1,5 +1,6 @@
 import awkward as ak
 import numpy as np
+from unittest.mock import patch
 
 from topcoffea.modules.CorrectedJetsFactory import CorrectedJetsFactory
 from topcoffea.modules.JECStack import JECStack
@@ -153,6 +154,7 @@ def test_corrected_jets_factory_handles_jer_without_cache():
     assert ak.to_list(ak.flatten(corrected_jets[name_map["JetPt"]]))[0] > 0.0
     jer_up = ak.to_list(ak.ravel(corrected_jets["JER"].up[name_map["JetPt"]]))
     assert jer_up[0] > 0.0
+    assert ak.num(corrected_jets["jet_resolution_rand_gauss"], axis=1).to_list() == [2]
 
 
 def test_corrected_jets_factory_produces_consistent_shapes_for_jer():
@@ -263,3 +265,60 @@ def test_corrected_jets_factory_jes_and_nominal_shapes():
     jes = corrected_jets["JES_Total"]
     assert ak.num(jes.up[name_map["JetPt"]], axis=1).to_list() == [2]
     assert ak.num(jes.down[name_map["JetPt"]], axis=1).to_list() == [2]
+
+
+def test_corrected_jets_factory_avoids_ak_stack():
+    name_map = _example_name_map()
+    jets = ak.Array(
+        [
+            [
+                {
+                    "pt": 30.0,
+                    "mass": 3.0,
+                    "pt_raw": 30.0,
+                    "mass_raw": 3.0,
+                    "eta": 0.1,
+                    "phi": 0.0,
+                    "pt_gen": 29.0,
+                }
+            ]
+        ]
+    )
+
+    class FakeResolution:
+        signature = ("JetPt", "JetEta")
+
+        def getResolution(self, JetPt, JetEta):
+            return ak.ones_like(JetPt, dtype=np.float32) * 0.05
+
+    class FakeScaleFactor:
+        signature = ("JetEta",)
+
+        def getScaleFactor(self, JetEta):
+            factors = np.array([1.0, 1.1, 0.9], dtype=np.float32)
+            tiled = np.tile(factors, (ak.to_numpy(ak.flatten(JetEta, axis=None)).size, 1))
+            return ak.Array(tiled)
+
+    class FakeJunc:
+        signature = ("JetPt",)
+
+        def getUncertainty(self, JetPt):
+            values = ak.ones_like(ak.flatten(JetPt, axis=None), dtype=np.float32) * 0.02
+            up = ak.Array(np.stack([ak.to_numpy(values) * 0 + 1 + 0.02, ak.to_numpy(values) * 0 + 1 - 0.02], axis=1))
+            return [("Total", up)]
+
+    stack = JECStack()
+    stack.jec = None
+    stack.junc = FakeJunc()
+    stack.jer = FakeResolution()
+    stack.jersf = FakeScaleFactor()
+
+    def _fail_stack(*args, **kwargs):
+        raise AssertionError("ak.stack should not be called in CorrectedJetsFactory")
+
+    with patch.object(ak, "stack", side_effect=_fail_stack, create=True):
+        factory = CorrectedJetsFactory(name_map, stack)
+        corrected_jets = factory.build(jets)
+
+    assert ak.num(corrected_jets[name_map["JetPt"]], axis=1).to_list() == [1]
+    assert "JES_Total" in ak.fields(corrected_jets)
