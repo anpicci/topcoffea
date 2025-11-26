@@ -376,6 +376,60 @@ def test_corrected_jets_factory_clib_preserves_jagged_shape_with_cumulative_jecs
     assert not np.array_equal(corrected_flat, raw_flat)
 
 
+def test_corrected_jets_factory_clib_multiplies_with_awkward_defaults():
+    name_map = _example_name_map()
+    jets = ak.Array(
+        [
+            [
+                {"pt": 22.0, "mass": 2.2, "pt_raw": 21.5, "mass_raw": 2.1, "eta": 0.2, "phi": 0.1, "pt_gen": 21.0},
+                {"pt": 28.0, "mass": 2.8, "pt_raw": 27.0, "mass_raw": 2.7, "eta": -0.4, "phi": -0.2, "pt_gen": 27.5},
+            ],
+            [
+                {"pt": 35.0, "mass": 3.5, "pt_raw": 34.0, "mass_raw": 3.3, "eta": 0.5, "phi": 0.0, "pt_gen": 34.5},
+            ],
+        ]
+    )
+
+    counts = ak.num(jets, axis=1)
+
+    class FakeInput:
+        def __init__(self, name):
+            self.name = name
+
+    class FakeClibCorrection:
+        def __init__(self, scale):
+            self.inputs = [FakeInput("JetPt")]
+            self.scale = scale
+            self.calls = []
+
+        def evaluate(self, JetPt):
+            self.calls.append(isinstance(JetPt, ak.Array))
+            values = ak.Array(JetPt)
+            return ak.ones_like(values, dtype=np.float32) * self.scale
+
+    stack = JECStack.__new__(JECStack)
+    stack.use_clib = True
+    stack.corrections = {
+        "Fake_L1": FakeClibCorrection(1.1),
+        "Fake_L2": FakeClibCorrection(0.9),
+    }
+    stack.jec_names_clib = ["Fake_L1", "Fake_L2"]
+    stack.jer_names_clib = []
+    stack.jec_uncsources_clib = []
+    stack.savecorr = False
+
+    factory = CorrectedJetsFactory(name_map, stack)
+    corrected_jets = factory.build(jets)
+
+    corrected_flat = ak.to_numpy(ak.flatten(corrected_jets[name_map["JetPt"]]))
+    raw_flat = ak.to_numpy(ak.flatten(jets[name_map["ptRaw"]]))
+
+    np.testing.assert_allclose(corrected_flat, raw_flat * 1.1 * 0.9)
+    assert not np.array_equal(corrected_flat, raw_flat)
+    assert all(stack.corrections[name].calls for name in stack.jec_names_clib)
+    assert ak.num(corrected_jets[name_map["JetPt"]], axis=1).to_list() == counts.to_list()
+
+
 def test_corrected_jets_factory_preserves_jagged_shapes_with_all_corrections():
     name_map = _example_name_map()
     jets = ak.Array(
