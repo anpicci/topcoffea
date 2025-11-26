@@ -176,14 +176,14 @@ class CorrectedJetsFactory(object):
                 total_correction = ak.ones_like(out_dict[self.name_map["JetPt"]])
 
         elif self.tool == "clib":
-            total_correction = ak.ones_like(out_dict[self.name_map["JetPt"]], dtype=numpy.float32)
+            total_correction = ak.values_astype(ak.ones_like(out_dict[self.name_map["JetPt"]]), numpy.float32)
             corrections_list = []
             for lvl in self.jec_stack.jec_names_clib:
                 cumCorr = None
                 if len(corrections_list) > 0:
-                    cumCorr = ak.ones_like(total_correction, dtype=numpy.float32)
+                    cumCorr = ak.ones_like(total_correction)
                     for corr in corrections_list:
-                        cumCorr = ak.values_astype(ak.Array(cumCorr) * ak.Array(corr), numpy.float32)
+                        cumCorr = ak.values_astype(cumCorr * corr, numpy.float32)
 
                     # cmssw multiplies each successive correction by all previous corrections
                     # as part of the correction inputs
@@ -195,7 +195,7 @@ class CorrectedJetsFactory(object):
                 correction = ak.values_astype(sf.evaluate(*inputs), numpy.float32)
                 jagged_correction = _as_jagged_per_jet(correction, counts, f"Correction {lvl}")
                 corrections_list.append(jagged_correction)
-                total_correction = ak.values_astype(ak.Array(total_correction) * ak.Array(jagged_correction), numpy.float32)
+                total_correction = ak.values_astype(total_correction * jagged_correction, numpy.float32)
 
                 if self.jec_stack.savecorr:
                     jec_lvl_tag = "_jec_" + lvl
