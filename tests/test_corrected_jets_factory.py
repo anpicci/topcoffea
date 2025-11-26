@@ -326,6 +326,56 @@ def test_corrected_jets_factory_clib_jes_handles_multijet_events():
     assert ak.num(jes_total.down[name_map["JetPt"]], axis=1).to_list() == counts.to_list()
 
 
+def test_corrected_jets_factory_clib_preserves_jagged_shape_with_cumulative_jecs():
+    name_map = _example_name_map()
+    jets = ak.Array(
+        [
+            [
+                {"pt": 20.0, "mass": 2.0, "pt_raw": 19.0, "mass_raw": 2.0, "eta": 0.2, "phi": 0.1, "pt_gen": 19.5},
+                {"pt": 30.0, "mass": 3.0, "pt_raw": 29.5, "mass_raw": 3.0, "eta": -0.3, "phi": -0.2, "pt_gen": 29.0},
+            ],
+            [
+                {"pt": 45.0, "mass": 4.5, "pt_raw": 44.0, "mass_raw": 4.5, "eta": 0.5, "phi": 0.3, "pt_gen": 44.5},
+            ],
+        ]
+    )
+
+    counts = ak.num(jets, axis=1)
+
+    class FakeInput:
+        def __init__(self, name):
+            self.name = name
+
+    class FakeClibCorrection:
+        def __init__(self, value):
+            self.inputs = [FakeInput("JetPt")]
+            self.value = value
+
+        def evaluate(self, JetPt):
+            target = np.asarray(JetPt, dtype=np.float32)
+            return np.ones_like(target, dtype=np.float32) * self.value
+
+    stack = JECStack.__new__(JECStack)
+    stack.use_clib = True
+    stack.corrections = {
+        "Fake_L1": FakeClibCorrection(1.05),
+        "Fake_L2": FakeClibCorrection(0.97),
+    }
+    stack.jec_names_clib = ["Fake_L1", "Fake_L2"]
+    stack.jer_names_clib = []
+    stack.jec_uncsources_clib = []
+    stack.savecorr = False
+
+    factory = CorrectedJetsFactory(name_map, stack)
+    corrected_jets = factory.build(jets)
+
+    assert ak.num(corrected_jets[name_map["JetPt"]], axis=1).to_list() == counts.to_list()
+    corrected_flat = ak.to_numpy(ak.flatten(corrected_jets[name_map["JetPt"]]))
+    raw_flat = ak.to_numpy(ak.flatten(jets[name_map["ptRaw"]]))
+    np.testing.assert_allclose(corrected_flat, raw_flat * 1.05 * 0.97)
+    assert not np.array_equal(corrected_flat, raw_flat)
+
+
 def test_corrected_jets_factory_preserves_jagged_shapes_with_all_corrections():
     name_map = _example_name_map()
     jets = ak.Array(
