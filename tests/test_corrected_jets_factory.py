@@ -1,3 +1,4 @@
+import json
 import awkward as ak
 import numpy as np
 from unittest.mock import patch
@@ -16,6 +17,45 @@ def _example_name_map():
         "JetPhi": "phi",
         "ptGenJet": "pt_gen",
     }
+
+
+def _write_clib_jec_file(tmp_path, scale=1.1, tail_scale=1.02):
+    payload = {
+        "schema_version": 2,
+        "description": "test clib corrections",
+        "corrections": [
+            {
+                "name": "TEST_L1_AK4PFchs",
+                "description": "first level",
+                "version": 1,
+                "inputs": [{"name": "JetPt", "type": "real"}],
+                "output": {"name": "weight", "type": "real"},
+                "data": {
+                    "nodetype": "formula",
+                    "expression": "x*0 + " + str(scale),
+                    "parser": "TFormula",
+                    "variables": ["JetPt"],
+                },
+            },
+            {
+                "name": "TEST_L2_AK4PFchs",
+                "description": "second level",
+                "version": 1,
+                "inputs": [{"name": "JetPt", "type": "real"}],
+                "output": {"name": "weight", "type": "real"},
+                "data": {
+                    "nodetype": "formula",
+                    "expression": "x*0 + " + str(tail_scale),
+                    "parser": "TFormula",
+                    "variables": ["JetPt"],
+                },
+            },
+        ],
+    }
+
+    path = tmp_path / "jec_corrections.json"
+    path.write_text(json.dumps(payload))
+    return path
 
 
 def test_corrected_jets_factory_build_without_cache():
@@ -620,3 +660,72 @@ def test_corrected_jets_factory_avoids_ak_stack():
 
     assert ak.num(corrected_jets[name_map["JetPt"]], axis=1).to_list() == [1]
     assert "JES_Total" in ak.fields(corrected_jets)
+
+
+def test_corrected_jets_factory_handles_clib_jagged_layout(tmp_path):
+    name_map = _example_name_map()
+    jets = ak.Array(
+        [
+            [
+                {
+                    "pt": 50.0,
+                    "mass": 5.0,
+                    "pt_raw": 48.0,
+                    "mass_raw": 4.8,
+                    "eta": 0.1,
+                    "phi": 1.2,
+                    "pt_gen": 49.0,
+                },
+                {
+                    "pt": 30.0,
+                    "mass": 3.0,
+                    "pt_raw": 29.0,
+                    "mass_raw": 2.9,
+                    "eta": -0.5,
+                    "phi": -1.0,
+                    "pt_gen": 28.0,
+                },
+            ],
+            [
+                {
+                    "pt": 40.0,
+                    "mass": 4.0,
+                    "pt_raw": 38.0,
+                    "mass_raw": 3.8,
+                    "eta": 0.7,
+                    "phi": 0.5,
+                    "pt_gen": 39.0,
+                }
+            ],
+        ]
+    )
+
+    corr_file = _write_clib_jec_file(tmp_path)
+    stack = JECStack(
+        corrections={},
+        use_clib=True,
+        jec_tag="TEST",
+        jec_levels=["L1", "L2"],
+        jet_algo="AK4PFchs",
+        json_path=str(corr_file),
+    )
+
+    factory = CorrectedJetsFactory(name_map, stack)
+    corrected_jets = factory.build(jets)
+
+    expected_factor = 1.1 * 1.02
+    expected_pt = expected_factor * jets[name_map["ptRaw"]]
+
+    np.testing.assert_allclose(
+        ak.to_numpy(ak.flatten(corrected_jets[name_map["JetPt"]])),
+        ak.to_numpy(ak.flatten(expected_pt)),
+    )
+    assert not np.allclose(
+        ak.to_numpy(ak.flatten(corrected_jets[name_map["JetPt"]])),
+        ak.to_numpy(ak.flatten(jets[name_map["ptRaw"]])),
+    )
+
+    counts = ak.num(corrected_jets[name_map["JetPt"]], axis=-1)
+    numeric_counts = ak.to_numpy(counts)
+    assert numeric_counts.ndim == 1
+    assert numeric_counts.dtype.kind in "iu"
