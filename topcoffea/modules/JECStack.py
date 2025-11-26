@@ -29,6 +29,7 @@ class JECStack:
     # Common fields for both scenarios
     corrections: Dict[str, any] = field(default_factory=dict)
     use_clib: bool = False  # Set to True if useclib is needed
+    savecorr: bool = False
 
     # Fields for the clib scenario (useclib=True)
     jec_tag: Optional[str] = None
@@ -120,18 +121,26 @@ class JECStack:
         cache_entry = self._get_cache_entry()
         cached_corrections = None
         if cache_entry is not None:
-            cached_corrections = cache_entry.setdefault("corrections", {})
+            cached_corrections = (
+                cache_entry.setdefault("corrections", {})
+                if self.savecorr
+                else cache_entry.get("corrections")
+            )
 
         self.corrections = {}
         for name in requested_corrections:
             if cached_corrections is not None and name in cached_corrections:
-                self.corrections[name] = cached_corrections[name]
-                continue
+                corr = cached_corrections[name]
+            else:
+                corr = self.cset[name]
+                if cached_corrections is not None:
+                    cached_corrections[name] = corr
 
-            corr = self.cset[name]
-            self.corrections[name] = corr
-            if cached_corrections is not None:
-                cached_corrections[name] = corr
+            if self.savecorr:
+                self.corrections[name] = corr
+
+        if not self.savecorr:
+            self.corrections = {name: self.cset[name] for name in requested_corrections}
 
         # Collect the full set of input variables used by any correction
         self.correction_inputs = set()
