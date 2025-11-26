@@ -3,7 +3,7 @@ import numpy
 import warnings
 from functools import partial
 import operator
-from coffea.jetmet_tools import JECStack
+from topcoffea.modules.JECStack import JECStack
 
 _stack_parts = ["jec", "junc", "jer", "jersf"]
 _MIN_JET_ENERGY = numpy.array(1e-2, dtype=numpy.float32)
