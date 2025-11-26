@@ -304,7 +304,7 @@ def test_corrected_jets_factory_clib_jes_handles_multijet_events():
             self.value = value
 
         def evaluate(self, JetPt):
-            return np.full(len(counts), self.value, dtype=np.float32)
+            return np.full(ak.sum(counts), self.value, dtype=np.float32)
 
     stack = JECStack.__new__(JECStack)
     stack.use_clib = True
@@ -324,6 +324,142 @@ def test_corrected_jets_factory_clib_jes_handles_multijet_events():
     jes_total = corrected_jets["JES_Total"]
     assert ak.num(jes_total.up[name_map["JetPt"]], axis=1).to_list() == counts.to_list()
     assert ak.num(jes_total.down[name_map["JetPt"]], axis=1).to_list() == counts.to_list()
+
+
+def test_corrected_jets_factory_preserves_jagged_shapes_with_all_corrections():
+    name_map = _example_name_map()
+    jets = ak.Array(
+        [
+            [
+                {"pt": 30.0, "mass": 3.0, "pt_raw": 29.0, "mass_raw": 3.0, "eta": 0.1, "phi": 0.0, "pt_gen": 28.0},
+                {"pt": 40.0, "mass": 4.0, "pt_raw": 39.0, "mass_raw": 4.0, "eta": -0.2, "phi": 0.2, "pt_gen": 39.0},
+            ],
+            [
+                {"pt": 25.0, "mass": 2.5, "pt_raw": 24.5, "mass_raw": 2.5, "eta": 0.4, "phi": -0.1, "pt_gen": 24.0},
+                {"pt": 35.0, "mass": 3.5, "pt_raw": 34.0, "mass_raw": 3.5, "eta": 0.6, "phi": 0.3, "pt_gen": 33.5},
+                {"pt": 50.0, "mass": 5.0, "pt_raw": 49.0, "mass_raw": 5.0, "eta": -0.5, "phi": -0.2, "pt_gen": 49.5},
+            ],
+        ]
+    )
+
+    counts = ak.num(jets, axis=1)
+
+    class FakeJEC:
+        signature = ("JetPt",)
+
+        def getCorrection(self, JetPt):
+            values = 1.0 + np.linspace(0.0, 0.02, ak.to_numpy(JetPt).size, dtype=np.float32)
+            return ak.Array(values)
+
+    class FakeResolution:
+        signature = ("JetPt", "JetEta")
+
+        def getResolution(self, JetPt, JetEta):
+            return ak.ones_like(JetPt, dtype=np.float32) * 0.05
+
+    class FakeScaleFactor:
+        signature = ("JetEta",)
+
+        def getScaleFactor(self, JetEta):
+            tiled = np.tile(np.array([1.0, 1.05, 0.95], dtype=np.float32), (ak.to_numpy(ak.flatten(JetEta)).size, 1))
+            return ak.Array(tiled)
+
+    class FakeJunc:
+        signature = ("JetPt",)
+
+        def getUncertainty(self, JetPt):
+            factors = np.stack([1.0 + 0.01 * np.arange(ak.to_numpy(JetPt).size), 1.0 - 0.01 * np.arange(ak.to_numpy(JetPt).size)], axis=1)
+            return [("Total", ak.Array(factors, with_name=None))]
+
+    stack = JECStack()
+    stack.jec = FakeJEC()
+    stack.junc = FakeJunc()
+    stack.jer = FakeResolution()
+    stack.jersf = FakeScaleFactor()
+
+    factory = CorrectedJetsFactory(name_map, stack)
+    corrected_jets = factory.build(jets)
+
+    assert ak.num(corrected_jets[name_map["JetPt"]], axis=1).to_list() == counts.to_list()
+    assert ak.num(corrected_jets["JER"].up[name_map["JetPt"]], axis=1).to_list() == counts.to_list()
+    assert ak.num(corrected_jets["JES_Total"].up[name_map["JetPt"]], axis=1).to_list() == counts.to_list()
+
+
+def test_corrected_jets_factory_clib_keeps_multijet_shapes_for_all_corrections():
+    name_map = _example_name_map()
+    jets = ak.Array(
+        [
+            [
+                {"pt": 20.0, "mass": 2.0, "pt_raw": 19.0, "mass_raw": 2.0, "eta": 0.2, "phi": 0.1, "pt_gen": 19.5},
+                {"pt": 30.0, "mass": 3.0, "pt_raw": 29.5, "mass_raw": 3.0, "eta": -0.3, "phi": -0.2, "pt_gen": 29.0},
+            ],
+            [
+                {"pt": 45.0, "mass": 4.5, "pt_raw": 44.0, "mass_raw": 4.5, "eta": 0.5, "phi": 0.3, "pt_gen": 44.5},
+            ],
+        ]
+    )
+
+    counts = ak.num(jets, axis=1)
+
+    class FakeInput:
+        def __init__(self, name):
+            self.name = name
+
+    class FakeClibCorrection:
+        def __init__(self, inputs, scale):
+            self.inputs = [FakeInput(name) for name in inputs]
+            self.scale = scale
+
+        def evaluate(self, *args):
+            jet_pt = np.asarray(args[0], dtype=np.float32)
+            return (1.0 + self.scale * np.arange(jet_pt.size, dtype=np.float32))
+
+    class FakeJERResolution:
+        def __init__(self):
+            self.inputs = [FakeInput("JetPt"), FakeInput("JetEta")]
+
+        def evaluate(self, *args):
+            jet_pt = np.asarray(args[0], dtype=np.float32)
+            return np.full(jet_pt.size, 0.1, dtype=np.float32)
+
+    class FakeJERScaleFactor:
+        def __init__(self):
+            self.inputs = [FakeInput("JetEta")]
+
+        def evaluate(self, *args):
+            size = np.asarray(args[0], dtype=np.float32).size
+            base = np.stack([np.ones(size), np.ones(size) * 1.05, np.ones(size) * 0.95], axis=1)
+            which = args[-1] if isinstance(args[-1], str) else "nom"
+            idx = {"nom": 0, "up": 1, "down": 2}[which]
+            return base[:, idx]
+
+    class FakeJuncCorrection:
+        def __init__(self):
+            self.inputs = [FakeInput("JetPt")]
+
+        def evaluate(self, JetPt):
+            jet_pt = np.asarray(JetPt, dtype=np.float32)
+            return 0.02 * (1 + np.arange(jet_pt.size, dtype=np.float32))
+
+    stack = JECStack.__new__(JECStack)
+    stack.use_clib = True
+    stack.corrections = {
+        "Fake_L1": FakeClibCorrection(["JetPt"], 0.01),
+        "Fake_JER": FakeJERResolution(),
+        "Fake_JERScaleFactor": FakeJERScaleFactor(),
+        "Fake_Total": FakeJuncCorrection(),
+    }
+    stack.jec_names_clib = ["Fake_L1"]
+    stack.jer_names_clib = ["Fake_JER", "Fake_JERScaleFactor"]
+    stack.jec_uncsources_clib = ["Fake_Total"]
+    stack.savecorr = False
+
+    factory = CorrectedJetsFactory(name_map, stack)
+    corrected_jets = factory.build(jets)
+
+    assert ak.num(corrected_jets[name_map["JetPt"]], axis=1).to_list() == counts.to_list()
+    assert ak.num(corrected_jets["JER"].up[name_map["JetPt"]], axis=1).to_list() == counts.to_list()
+    assert ak.num(corrected_jets["JES_Total"].up[name_map["JetPt"]], axis=1).to_list() == counts.to_list()
 
 def test_corrected_jets_factory_avoids_ak_stack():
     name_map = _example_name_map()

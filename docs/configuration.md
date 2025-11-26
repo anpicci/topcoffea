@@ -77,11 +77,15 @@ Factories that consume the stack use eager Awkward 2.x arrays for their
 correction inputs: `CorrectedJetsFactory` now mirrors coffea's upstream,
 cache-free implementation, replaces `ak.stack` with Awkward 2.x-friendly
 concatenations, and materialises JER/JES variations before zipping them into
-records. `CorrectedMETFactory` still exposes an optional `lazy_cache` to let
-callers provide storage for `awkward.virtual` MET variants (the factory will
-pass the cache through when building the corrected fields).  This mirrors
-coffea ≥0.7 expectations and avoids the awkward virtual plumbing that triggered
-broadcast issues with newer Awkward releases.【F:topcoffea/modules/CorrectedJetsFactory.py†L1-L217】【F:topcoffea/modules/CorrectedMETFactory.py†L35-L97】
+records. Jet-energy corrections are applied directly on jagged jet lists
+without flatten/unflatten shuffling, preserving per-event multiplicities even
+when the correction inputs come from correctionlib JSON payloads. Jets retain
+their original ragged structure while accumulating per-jet scale factors, and
+no lazy caches are required. `CorrectedMETFactory` still exposes an optional
+`lazy_cache` to let callers provide storage for `awkward.virtual` MET variants
+(the factory will pass the cache through when building the corrected fields).
+This mirrors coffea ≥0.7 expectations and avoids the awkward virtual plumbing
+that triggered broadcast issues with newer Awkward releases.【F:topcoffea/modules/CorrectedJetsFactory.py†L1-L392】【F:topcoffea/modules/CorrectedMETFactory.py†L35-L97】
 
 ## Coffea 2025.7 considerations
 
