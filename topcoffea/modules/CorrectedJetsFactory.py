@@ -146,7 +146,10 @@ class CorrectedJetsFactory(object):
             raise Exception("Empty record, please pass a jet object with at least {self.real_sig} defined!")
 
         counts = ak.num(jets, axis=1)
-        parameters = dict(ak.parameters(jets) or {})
+        base_parameters = ak.parameters(jets) or {}
+        record_parameters = ak.parameters(ak.flatten(jets, axis=None)) or {}
+        parameters = dict(record_parameters)
+        parameters.update(base_parameters)
         parameters["corrected"] = True
         behavior = jets.behavior
 
