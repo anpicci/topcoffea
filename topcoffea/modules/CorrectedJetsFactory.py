@@ -219,6 +219,8 @@ class CorrectedJetsFactory(object):
         out_dict[self.name_map["JetMass"] + "_jec"] = out_dict[self.name_map["JetMass"]]
 
         jagged_out = dict(out_dict)
+        jer_systematic = None
+        jes_systematics = {}
 
         has_jer = False
         if self.tool == "jecstack":
@@ -308,7 +310,7 @@ class CorrectedJetsFactory(object):
                 var_dict[self.name_map["JetMass"]] = correction * jagged_out[jer_name_map["JetMass"]]
                 return ak.zip(var_dict, depth_limit=1, parameters=parameters, behavior=behavior)
 
-            jagged_out["JER"] = ak.zip({"up": build_jer_variant(1), "down": build_jer_variant(2)}, depth_limit=1, with_name="JetSystematic")
+            jer_systematic = ak.zip({"up": build_jer_variant(1), "down": build_jer_variant(2)}, depth_limit=1, with_name="JetSystematic")
 
         has_junc = self.jec_stack.junc is not None
         if self.tool == "clib":
@@ -362,7 +364,7 @@ class CorrectedJetsFactory(object):
             for name, func in juncs:
                 jagged_unc = _as_jagged_per_jet(func, counts, f"JES uncertainty {name}")
                 jagged_out[f"jet_energy_uncertainty_{name}"] = jagged_unc
-                jagged_out[f"JES_{name}"] = build_variant(
+                jes_systematics[name] = build_variant(
                     jagged_unc,
                     self.name_map["JetPt"],
                     template_pt,
@@ -370,4 +372,15 @@ class CorrectedJetsFactory(object):
                     template_mass,
                 )
 
-        return ak.zip(jagged_out, depth_limit=1, parameters=parameters, behavior=behavior)
+        jets_record = ak.zip(jagged_out, depth_limit=1, parameters=parameters, behavior=behavior)
+
+        if jer_systematic is not None:
+            jets_record = ak.with_field(jets_record, jer_systematic, "JER")
+
+        if len(jes_systematics) > 0:
+            for name, variation in jes_systematics.items():
+                jets_record = ak.with_field(jets_record, variation, f"JES_{name}")
+
+            jets_record = ak.with_field(jets_record, ak.zip(jes_systematics, depth_limit=1), "JES")
+
+        return jets_record
