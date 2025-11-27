@@ -7,12 +7,15 @@ operating on flattened arrays before rebuilding the jagged structure.
 import numpy
 import awkward as ak
 import warnings
+import logging
 from functools import reduce
 
 from topcoffea.modules.JECStack import JECStack
 
 _stack_parts = ["jec", "junc", "jer", "jersf"]
 _MIN_JET_ENERGY = numpy.array(1e-2, dtype=numpy.float32)
+
+logger = logging.getLogger(__name__)
 
 
 def _random_gauss(counts, rng):
@@ -381,7 +384,14 @@ class CorrectedJetsFactory(object):
             for name, variation in jes_systematics.items():
                 jets_record = ak.with_field(jets_record, variation, f"JES_{name}")
 
-            grouped_jes = ak.zip(jes_systematics, depth_limit=1, with_name="JESVariations")
-            jets_record = ak.with_field(jets_record, grouped_jes, "JES")
+        if logger.isEnabledFor(logging.DEBUG):
+            jet_fields = tuple(ak.fields(jets_record))
+            jes_fields = tuple(sorted(field for field in jet_fields if field.startswith("JES_")))
+            logger.debug(
+                "CorrectedJetsFactory systematic fields: JER_present=%s JES_sources=%s all_fields=%s",
+                "JER" in jet_fields,
+                jes_fields,
+                jet_fields,
+            )
 
         return jets_record
