@@ -1,4 +1,5 @@
 import awkward
+import logging
 import numpy
 from copy import copy
 
@@ -15,6 +16,8 @@ if not hasattr(awkward, "materialized"):
         return array
 
     awkward.materialized = _materialized
+
+logger = logging.getLogger(__name__)
 
 def corrected_polar_met(met_pt, met_phi, jet_pt, jet_phi, jet_pt_orig, deltas=None):
     sj, cj = numpy.sin(jet_phi), numpy.cos(jet_phi)
@@ -155,9 +158,20 @@ class CorrectedMETFactory(object):
             with_name="METSystematic",
         )
 
-        for unc in filter(
-            lambda x: x.startswith(("JER", "JES")), awkward.fields(corrected_jets)
-        ):
+        jet_fields = tuple(awkward.fields(corrected_jets))
+        systematic_uncertainties = [
+            field
+            for field in jet_fields
+            if field.startswith(("JER", "JES")) and field != "JES"
+        ]
+        if logger.isEnabledFor(logging.DEBUG):
+            logger.debug(
+                "CorrectedMETFactory MET uncertainties: selected=%s all_jet_fields=%s",
+                systematic_uncertainties,
+                jet_fields,
+            )
+
+        for unc in systematic_uncertainties:
             out_dict[unc] = awkward.virtual(
                 lazy_variant,
                 args=(
