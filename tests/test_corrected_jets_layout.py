@@ -34,22 +34,26 @@ class FakeScaleFactor:
         return ak.concatenate([central[..., None], up[..., None], down[..., None]], axis=-1)
 
 
-class FakeUncertainty:
+class FakeMultipleUncertainties:
     signature = ["JetPt"]
 
-    def __init__(self, counts):
+    def __init__(self, counts, names):
         self.counts = counts
+        self.names = names
 
     def getUncertainty(self, **kwargs):
         jetpt = next(iter(kwargs.values()))
         base = ak.unflatten(jetpt, self.counts, axis=0)
-        spread = 0.02 * ak.ones_like(base)
-        up = 1 + spread
-        down = 1 - spread
-        return [("Total", ak.concatenate([up[..., None], down[..., None]], axis=-1))]
+        variations = []
+        for idx, name in enumerate(self.names, start=1):
+            spread = 0.01 * idx * ak.ones_like(base)
+            up = 1 + spread
+            down = 1 - spread
+            variations.append((name, ak.concatenate([up[..., None], down[..., None]], axis=-1)))
+        return variations
 
 
-def test_corrected_jets_keep_event_jet_axes():
+def test_corrected_jets_multiple_jes_sources_keep_axes():
     jets = ak.Array(
         [
             [
@@ -73,26 +77,27 @@ def test_corrected_jets_keep_event_jet_axes():
         "ptGenJet": "ptGenJet",
     }
 
+    jes_sources = ["Total", "Absolute", "Relative"]
+
     jec_stack = DummyJECStack()
     jec_stack.use_clib = False
     jec_stack.jec = None
     jec_stack.jer = FakeResolution()
     jec_stack.jersf = FakeScaleFactor(counts)
-    jec_stack.junc = FakeUncertainty(counts)
+    jec_stack.junc = FakeMultipleUncertainties(counts, jes_sources)
     jec_stack.savecorr = False
 
     factory = CorrectedJetsFactory(name_map, jec_stack)
     cjets = factory.build(jets)
 
-    jet_counts = ak.num(cjets.pt, axis=1)
+    central_counts = ak.num(cjets.pt, axis=1)
 
     # Central jets keep the same event->jet jagged structure
-    assert ak.all(ak.num(cjets, axis=1).pt == jet_counts)
-    assert ak.all(jet_counts == counts)
+    assert ak.all(central_counts == counts)
 
-    # JER variations follow the same jagged axes
-    assert ak.all(ak.num(cjets.JER.up, axis=1).pt == jet_counts)
-
-    # JES variations (both individual and grouped) follow the same jagged axes
-    assert ak.all(ak.num(cjets["JES_Total"].up.pt, axis=1) == jet_counts)
-    assert ak.all(ak.num(cjets.JES["Total"].up.pt, axis=1) == jet_counts)
+    # JES variations (both individual fields and grouped record) follow the same jagged axes
+    for source in jes_sources:
+        assert ak.all(ak.num(cjets[f"JES_{source}"].up.pt, axis=1) == central_counts)
+        assert ak.all(ak.num(cjets[f"JES_{source}"].down.pt, axis=1) == central_counts)
+        assert ak.all(ak.num(cjets.JES[source].up.pt, axis=1) == central_counts)
+        assert ak.all(ak.num(cjets.JES[source].down.pt, axis=1) == central_counts)
