@@ -222,12 +222,12 @@ class CorrectedJetsFactory(object):
         jer_systematic = None
         jes_systematics = {}
 
-        has_jer = False
         if self.tool == "jecstack":
-            if self.jec_stack.jer is not None and self.jec_stack.jersf is not None:
-                has_jer = True
+            has_jer = self.jec_stack.jer is not None and self.jec_stack.jersf is not None
         elif self.tool == "clib":
             has_jer = len(self.jec_stack.jer_names_clib) > 0
+        else:
+            has_jer = False
 
         if has_jer:
             jer_name_map = dict(self.name_map)
@@ -318,7 +318,7 @@ class CorrectedJetsFactory(object):
 
         if has_junc:
             junc_name_map = dict(self.name_map)
-            if has_jer:
+            if jer_systematic is not None:
                 junc_name_map["JetPt"] = junc_name_map["JetPt"] + "_jer"
                 junc_name_map["JetMass"] = junc_name_map["JetMass"] + "_jer"
             else:
@@ -381,6 +381,7 @@ class CorrectedJetsFactory(object):
             for name, variation in jes_systematics.items():
                 jets_record = ak.with_field(jets_record, variation, f"JES_{name}")
 
-            jets_record = ak.with_field(jets_record, ak.zip(jes_systematics, depth_limit=1), "JES")
+            grouped_jes = ak.zip(jes_systematics, depth_limit=1, with_name="JESVariations")
+            jets_record = ak.with_field(jets_record, grouped_jes, "JES")
 
         return jets_record
