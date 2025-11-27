@@ -1,6 +1,9 @@
+import logging
 import awkward
 import numpy
 from copy import copy
+
+logger = logging.getLogger(__name__)
 
 if not hasattr(awkward, "virtual"):
 
@@ -15,6 +18,22 @@ if not hasattr(awkward, "materialized"):
         return array
 
     awkward.materialized = _materialized
+
+
+def _type_summary(array):
+    try:
+        return repr(awkward.type(array))
+    except Exception as exc:  # pragma: no cover - defensive logging only
+        return f"<type unavailable: {exc}>"
+
+
+def _form_summary(array):
+    try:
+        layout = awkward.to_layout(array, allow_record=True, allow_other=True)
+        return repr(layout.form)
+    except Exception as exc:  # pragma: no cover - defensive logging only
+        return f"<form unavailable: {exc}>"
+
 
 def corrected_polar_met(met_pt, met_phi, jet_pt, jet_phi, jet_pt_orig, deltas=None):
     sj, cj = numpy.sin(jet_phi), numpy.cos(jet_phi)
@@ -61,6 +80,25 @@ class CorrectedMETFactory(object):
             raise Exception(
                 "'MET' and 'corrected_jets' must be an awkward array of some kind!"
             )
+
+        logger.info(
+            "Building MET with corrected_jets fields: %s", awkward.fields(corrected_jets)
+        )
+        logger.info(
+            "Nominal jet pt type: %s | form: %s",
+            _type_summary(corrected_jets[self.name_map["JetPt"]]),
+            _form_summary(corrected_jets[self.name_map["JetPt"]]),
+        )
+        logger.info(
+            "Nominal jet phi type: %s | form: %s",
+            _type_summary(corrected_jets[self.name_map["JetPhi"]]),
+            _form_summary(corrected_jets[self.name_map["JetPhi"]]),
+        )
+        logger.info(
+            "Nominal jet raw pt type: %s | form: %s",
+            _type_summary(corrected_jets[self.name_map["ptRaw"]]),
+            _form_summary(corrected_jets[self.name_map["ptRaw"]]),
+        )
 
         length = len(MET)
         pt_form = MET[self.name_map["METpt"]].layout.form
@@ -155,9 +193,51 @@ class CorrectedMETFactory(object):
             with_name="METSystematic",
         )
 
-        for unc in filter(
-            lambda x: x.startswith(("JER", "JES")), awkward.fields(corrected_jets)
-        ):
+        uncertainties = list(
+            filter(lambda x: x.startswith(("JER", "JES")), awkward.fields(corrected_jets))
+        )
+        logger.info(
+            "MET uncertainties sourced from corrected_jets: %s", uncertainties
+        )
+
+        for unc in uncertainties:
+            unc_array = corrected_jets[unc]
+            unc_fields = awkward.fields(unc_array)
+            uses_up_down = {"up", "down"}.issubset(set(unc_fields))
+            logger.info(
+                "Uncertainty '%s' uses %s; fields: %s",
+                unc,
+                "up/down record" if uses_up_down else "leading source axis or alternative layout",
+                unc_fields,
+            )
+            if uses_up_down:
+                logger.info(
+                    "    %s.up jet pt form: %s | type: %s",
+                    unc,
+                    _form_summary(unc_array.up[self.name_map["JetPt"]]),
+                    _type_summary(unc_array.up[self.name_map["JetPt"]]),
+                )
+                logger.info(
+                    "    %s.down jet pt form: %s | type: %s",
+                    unc,
+                    _form_summary(unc_array.down[self.name_map["JetPt"]]),
+                    _type_summary(unc_array.down[self.name_map["JetPt"]]),
+                )
+            else:
+                logger.info(
+                    "    %s variation container form: %s | type: %s",
+                    unc,
+                    _form_summary(unc_array),
+                    _type_summary(unc_array),
+                )
+                if self.name_map["JetPt"] in unc_fields:
+                    logger.info(
+                        "    %s jet pt variation form: %s | type: %s",
+                        unc,
+                        _form_summary(unc_array[self.name_map["JetPt"]]),
+                        _type_summary(unc_array[self.name_map["JetPt"]]),
+                    )
+
             out_dict[unc] = awkward.virtual(
                 lazy_variant,
                 args=(
