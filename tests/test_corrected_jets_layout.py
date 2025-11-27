@@ -95,6 +95,10 @@ def test_corrected_jets_multiple_jes_sources_keep_axes():
     # Central jets keep the same event->jet jagged structure
     assert ak.all(central_counts == counts)
 
+    # JER variations keep the same jagged axes
+    assert ak.all(ak.num(cjets.JER.up.pt, axis=1) == central_counts)
+    assert ak.all(ak.num(cjets.JER.down.pt, axis=1) == central_counts)
+
     # JES variations (both individual fields and grouped record) follow the same jagged axes
     for source in jes_sources:
         assert ak.all(ak.num(cjets[f"JES_{source}"].up.pt, axis=1) == central_counts)
