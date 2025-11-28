@@ -384,14 +384,14 @@ class CorrectedJetsFactory(object):
             for name, variation in jes_systematics.items():
                 jets_record = ak.with_field(jets_record, variation, f"JES_{name}")
 
-        if logger.isEnabledFor(logging.DEBUG):
+        if logger.isEnabledFor(logging.INFO):
             jet_fields = tuple(ak.fields(jets_record))
             jes_fields = tuple(sorted(field for field in jet_fields if field.startswith("JES_")))
-            logger.debug(
-                "CorrectedJetsFactory systematic fields: JER_present=%s JES_sources=%s all_fields=%s",
+            logger.info(
+                "CorrectedJetsFactory: JER_present=%s JES_sources=%s total_fields=%d",
                 "JER" in jet_fields,
                 jes_fields,
-                jet_fields,
+                len(jet_fields),
             )
 
         return jets_record
