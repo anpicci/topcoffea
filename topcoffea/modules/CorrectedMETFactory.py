@@ -164,11 +164,11 @@ class CorrectedMETFactory(object):
             for field in jet_fields
             if field.startswith(("JER", "JES")) and field != "JES"
         ]
-        if logger.isEnabledFor(logging.DEBUG):
-            logger.debug(
-                "CorrectedMETFactory MET uncertainties: selected=%s all_jet_fields=%s",
+        if logger.isEnabledFor(logging.INFO):
+            logger.info(
+                "CorrectedMETFactory: MET systematics=%s total_jet_fields=%d",
                 systematic_uncertainties,
-                jet_fields,
+                len(jet_fields),
             )
 
         for unc in systematic_uncertainties:
