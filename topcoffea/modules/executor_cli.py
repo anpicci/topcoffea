@@ -29,8 +29,12 @@ __all__ = [
 ]
 
 DEFAULT_EXECUTOR = "taskvine"
-KNOWN_EXECUTORS: Tuple[str, ...] = ("futures", "taskvine", "work_queue")
-EXECUTOR_ALIASES = {"work_queue": "taskvine"}
+KNOWN_EXECUTORS: Tuple[str, ...] = ("futures", "taskvine", "work_queue", "ddr")
+EXECUTOR_ALIASES = {
+    "work_queue": "taskvine",
+    "taskvine_ddr": "ddr",
+}
+_TASKVINE_FAMILY = {"taskvine", "ddr"}
 DEFAULT_PORT_RANGE = "9123-9130"
 DEFAULT_NWORKERS = 8
 DEFAULT_CHUNKSIZE = 100_000
@@ -58,7 +62,8 @@ TaskVine quick start:
 
   Use --environment-file auto to build or reuse the cached Conda
   environment containing editable topcoffea/topeft checkouts before
-  launching workers.
+  launching workers. Select --executor ddr to run those workers via
+  CoffeaDynamicDataReduction for dynamic orchestration.
 """
 
 
@@ -75,7 +80,7 @@ class ExecutorCLIConfig:
 
     @property
     def requires_port(self) -> bool:
-        return self.executor == "taskvine"
+        return self.executor in _TASKVINE_FAMILY
 
 
 def register_executor_arguments(parser) -> None:
@@ -94,7 +99,7 @@ def register_executor_arguments(parser) -> None:
         "-x",
         choices=KNOWN_EXECUTORS,
         default=DEFAULT_EXECUTOR,
-        help="Executor backend to use (default: %(default)s).",
+        help="Executor backend to use (default: %(default)s). Use 'ddr' for CoffeaDynamicDataReduction runs.",
     )
     parser.add_argument(
         "--nworkers",
@@ -160,7 +165,7 @@ def executor_config_from_values(
         return int(value)
 
     port_range: Optional[Tuple[int, int]]
-    if normalized_executor == "taskvine":
+    if normalized_executor in _TASKVINE_FAMILY:
         port_range = parse_port_range(port)
     else:
         port_range = None
@@ -169,7 +174,7 @@ def executor_config_from_values(
     if environment_file:
         environment_file = environment_file.strip()
 
-    if normalized_executor == "taskvine":
+    if normalized_executor in _TASKVINE_FAMILY:
         if environment_file == TASKVINE_ENVIRONMENT_AUTO:
             merged_extra: Dict[str, Sequence[str]] = {
                 pkg: tuple(paths) for pkg, paths in TASKVINE_EXTRA_PIP_LOCAL.items()
