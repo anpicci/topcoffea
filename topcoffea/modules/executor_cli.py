@@ -17,7 +17,7 @@ from . import remote_environment
 
 __all__ = [
     "DEFAULT_EXECUTOR",
-    "KNOWN_EXECUTORS",
+    "SUPPORTED_EXECUTORS",
     "ExecutorCLIConfig",
     "register_executor_arguments",
     "executor_config_from_values",
@@ -29,12 +29,8 @@ __all__ = [
 ]
 
 DEFAULT_EXECUTOR = "taskvine"
-KNOWN_EXECUTORS: Tuple[str, ...] = ("futures", "taskvine", "work_queue", "ddr")
-EXECUTOR_ALIASES = {
-    "work_queue": "taskvine",
-    "taskvine_ddr": "ddr",
-}
-_TASKVINE_FAMILY = {"taskvine", "ddr"}
+SUPPORTED_EXECUTORS: Tuple[str, ...] = ("futures", "iterative", "taskvine")
+_TASKVINE_FAMILY = {"taskvine"}
 DEFAULT_PORT_RANGE = "9123-9130"
 DEFAULT_NWORKERS = 8
 DEFAULT_CHUNKSIZE = 100_000
@@ -60,10 +56,10 @@ TaskVine quick start:
     • 6 GiB RAM
     • 8 GiB local scratch space
 
-  Use --environment-file auto to build or reuse the cached Conda
-  environment containing editable topcoffea/topeft checkouts before
-  launching workers. Select --executor ddr to run those workers via
-  CoffeaDynamicDataReduction for dynamic orchestration.
+  Use --environment-file auto to build or reuse the cached Conda environment
+  containing editable topcoffea/topeft checkouts before launching workers.
+  Select --executor taskvine to run those workers via CoffeaDynamicDataReduction
+  for dynamic orchestration.
 """
 
 
@@ -83,6 +79,22 @@ class ExecutorCLIConfig:
         return self.executor in _TASKVINE_FAMILY
 
 
+def _normalize_executor(executor: str) -> str:
+    normalized = executor.strip().lower()
+    if normalized not in SUPPORTED_EXECUTORS:
+        raise ValueError(
+            f"Unsupported executor '{executor}'. Valid options are: {', '.join(SUPPORTED_EXECUTORS)}."
+        )
+    return normalized
+
+
+def _parse_executor_argument(value: str) -> str:
+    try:
+        return _normalize_executor(value)
+    except ValueError as exc:
+        raise argparse.ArgumentTypeError(str(exc))
+
+
 def register_executor_arguments(parser) -> None:
     """Attach common executor options to an ``argparse`` parser."""
 
@@ -97,9 +109,14 @@ def register_executor_arguments(parser) -> None:
     parser.add_argument(
         "--executor",
         "-x",
-        choices=KNOWN_EXECUTORS,
+        choices=SUPPORTED_EXECUTORS,
         default=DEFAULT_EXECUTOR,
-        help="Executor backend to use (default: %(default)s). Use 'ddr' for CoffeaDynamicDataReduction runs.",
+        type=_parse_executor_argument,
+        metavar="{futures,iterative,taskvine}",
+        help=(
+            "Which executor to use (default: %(default)s). Choose from futures, iterative, or "
+            "taskvine (TaskVine via DDR)."
+        ),
     )
     parser.add_argument(
         "--nworkers",
@@ -152,12 +169,7 @@ def executor_config_from_values(
 ) -> ExecutorCLIConfig:
     """Normalise user provided values into an :class:`ExecutorCLIConfig`."""
 
-    if executor not in KNOWN_EXECUTORS:
-        raise ValueError(
-            f'Unknown executor "{executor}". Expected one of {", ".join(KNOWN_EXECUTORS)}.'
-        )
-
-    normalized_executor = EXECUTOR_ALIASES.get(executor, executor)
+    normalized_executor = _normalize_executor(executor)
 
     def _maybe_int(value: Optional[int | str], default: Optional[int] = None) -> Optional[int]:
         if value in (None, ""):
