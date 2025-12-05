@@ -26,20 +26,23 @@ default_modules = {
     "conda": {
         "channels": ["conda-forge"],
         "packages": [
+            "python=3.13",
+            "pip=25.3",
             "coffea=2025.7.3",
             "awkward=2.8.7",
             "hist=2.9.*",
-            "pandas>=2.2,<2.3",
-            "numpy=2.0.*",
-            "ndcctools",
-            "conda-pack",
-            "dill",
-            "xrootd",
-            "git",
-            "pyyaml",
+            "ndcctools=7.15.14",
+            "xrootd=5.8.4",
+            "pyyaml=6.0.3",
+            "dill=0.4.0",
         ],
     },
-    "pip": ["topcoffea"],
+    "pip": [
+        "numpy==2.0.2",
+        "pandas==2.2.3",
+        "topcoffea==0.0.0",
+        "topeft==0.0.0",
+    ],
 }
 
 pip_local_to_watch = {
