@@ -72,16 +72,16 @@ def test_run_ddr_invokes_preprocess_and_ddr(mock_preprocess, mock_ddr):
     assert result == {"accumulator": 1}
 
 
-def test_executor_cli_accepts_ddr_executor(tmp_path):
+def test_executor_cli_accepts_taskvine_executor(tmp_path):
     fake_env = tmp_path / "env.tar.gz"
     fake_env.write_text("placeholder")
 
     config = executor_config_from_values(
-        executor="ddr",
+        executor="taskvine",
         port="9200-9201",
         environment_file=str(fake_env),
     )
 
-    assert config.executor == "ddr"
+    assert config.executor == "taskvine"
     assert config.port == (9200, 9201)
     assert config.environment_file == str(fake_env)
