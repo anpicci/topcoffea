@@ -3,6 +3,8 @@ import logging
 import numpy
 from copy import copy
 
+from topcoffea.modules.variation_filters import normalize_allowed_variations
+
 if not hasattr(awkward, "virtual"):
 
     def _virtual(gfunc, args=(), cache=None, length=None, form=None):
@@ -34,7 +36,7 @@ def corrected_polar_met(met_pt, met_phi, jet_pt, jet_phi, jet_pt_orig, deltas=No
     return awkward.zip({"pt": numpy.hypot(x, y), "phi": numpy.arctan2(y, x)})
 
 class CorrectedMETFactory(object):
-    def __init__(self, name_map):
+    def __init__(self, name_map, allowed_variations=None):
         for name in [
             "METpt",
             "METphi",
@@ -50,6 +52,7 @@ class CorrectedMETFactory(object):
                 )
 
         self.name_map = name_map
+        self._variation_control = normalize_allowed_variations(allowed_variations)
 
     def build(self, MET, corrected_jets, lazy_cache=None):
         if lazy_cache is not None:
@@ -127,36 +130,37 @@ class CorrectedMETFactory(object):
 
         out_dict = {field: out[field] for field in awkward.fields(out)}
 
-        out_dict["MET_UnclusteredEnergy"] = awkward.zip(
-            {
-                "up": make_variant(
-                    MET[self.name_map["METpt"]],
-                    MET[self.name_map["METphi"]],
-                    corrected_jets[self.name_map["JetPt"]],
-                    corrected_jets[self.name_map["JetPhi"]],
-                    corrected_jets[self.name_map["ptRaw"]],
-                    (
-                        True,
-                        MET[self.name_map["UnClusteredEnergyDeltaX"]],
-                        MET[self.name_map["UnClusteredEnergyDeltaY"]],
+        if self._variation_control.allow_ues:
+            out_dict["MET_UnclusteredEnergy"] = awkward.zip(
+                {
+                    "up": make_variant(
+                        MET[self.name_map["METpt"]],
+                        MET[self.name_map["METphi"]],
+                        corrected_jets[self.name_map["JetPt"]],
+                        corrected_jets[self.name_map["JetPhi"]],
+                        corrected_jets[self.name_map["ptRaw"]],
+                        (
+                            True,
+                            MET[self.name_map["UnClusteredEnergyDeltaX"]],
+                            MET[self.name_map["UnClusteredEnergyDeltaY"]],
+                        ),
                     ),
-                ),
-                "down": make_variant(
-                    MET[self.name_map["METpt"]],
-                    MET[self.name_map["METphi"]],
-                    corrected_jets[self.name_map["JetPt"]],
-                    corrected_jets[self.name_map["JetPhi"]],
-                    corrected_jets[self.name_map["ptRaw"]],
-                    (
-                        False,
-                        MET[self.name_map["UnClusteredEnergyDeltaX"]],
-                        MET[self.name_map["UnClusteredEnergyDeltaY"]],
+                    "down": make_variant(
+                        MET[self.name_map["METpt"]],
+                        MET[self.name_map["METphi"]],
+                        corrected_jets[self.name_map["JetPt"]],
+                        corrected_jets[self.name_map["JetPhi"]],
+                        corrected_jets[self.name_map["ptRaw"]],
+                        (
+                            False,
+                            MET[self.name_map["UnClusteredEnergyDeltaX"]],
+                            MET[self.name_map["UnClusteredEnergyDeltaY"]],
+                        ),
                     ),
-                ),
-            },
-            depth_limit=1,
-            with_name="METSystematic",
-        )
+                },
+                depth_limit=1,
+                with_name="METSystematic",
+            )
 
         jet_fields = tuple(awkward.fields(corrected_jets))
         systematic_uncertainties = [
@@ -171,7 +175,20 @@ class CorrectedMETFactory(object):
                 len(jet_fields),
             )
 
+        allowed_uncertainties = []
         for unc in systematic_uncertainties:
+            if unc == "JER":
+                if self._variation_control.allow_jer:
+                    allowed_uncertainties.append(unc)
+                continue
+            if unc.startswith("JES_"):
+                component = unc.split("JES_", 1)[1]
+                if self._variation_control.allows_jes_component(component):
+                    allowed_uncertainties.append(unc)
+                continue
+            allowed_uncertainties.append(unc)
+
+        for unc in allowed_uncertainties:
             out_dict[unc] = awkward.virtual(
                 lazy_variant,
                 args=(
@@ -194,4 +211,6 @@ class CorrectedMETFactory(object):
         return out
 
     def uncertainties(self):
-        return ["MET_UnclusteredEnergy"]
+        if self._variation_control.allow_ues:
+            return ["MET_UnclusteredEnergy"]
+        return []
