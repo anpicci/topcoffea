@@ -11,6 +11,7 @@ import logging
 from functools import reduce
 
 from topcoffea.modules.JECStack import JECStack
+from topcoffea.modules.variation_filters import normalize_allowed_variations
 
 _stack_parts = ["jec", "junc", "jer", "jersf"]
 _MIN_JET_ENERGY = numpy.array(1e-2, dtype=numpy.float32)
@@ -88,12 +89,13 @@ def get_corr_inputs(jets, corr_obj, name_map, corrections=None):
 
 
 class CorrectedJetsFactory(object):
-    def __init__(self, name_map, jec_stack):
+    def __init__(self, name_map, jec_stack, allowed_variations=None):
         if not isinstance(jec_stack, JECStack):
             raise TypeError("jec_stack must be an instance of JECStack")
 
         self.tool = "clib" if jec_stack.use_clib else "jecstack"
         self.forceStochastic = False
+        self._variation_control = normalize_allowed_variations(allowed_variations)
 
         if "ptRaw" not in name_map or name_map["ptRaw"] is None:
             warnings.warn(
@@ -232,7 +234,8 @@ class CorrectedJetsFactory(object):
         else:
             has_jer = False
 
-        if has_jer:
+        jer_enabled = has_jer and self._variation_control.allow_jer
+        if jer_enabled:
             jer_name_map = dict(self.name_map)
             jer_name_map["JetPt"] = jer_name_map["JetPt"] + "_jec"
             jer_name_map["JetMass"] = jer_name_map["JetMass"] + "_jec"
@@ -318,8 +321,10 @@ class CorrectedJetsFactory(object):
         has_junc = self.jec_stack.junc is not None
         if self.tool == "clib":
             has_junc = len(self.jec_stack.jec_uncsources_clib) > 0
+        jes_entries = []
+        jes_enabled = has_junc and self._variation_control.allow_jes
 
-        if has_junc:
+        if jes_enabled:
             junc_name_map = dict(self.name_map)
             if jer_systematic is not None:
                 junc_name_map["JetPt"] = junc_name_map["JetPt"] + "_jer"
@@ -330,10 +335,14 @@ class CorrectedJetsFactory(object):
 
             if self.tool == "jecstack":
                 junc_args = {k: ak.flatten(jagged_out[junc_name_map[k]]) for k in self.jec_stack.junc.signature}
-                juncs = self.jec_stack.junc.getUncertainty(**junc_args)
+                raw_juncs = self.jec_stack.junc.getUncertainty(**junc_args)
+                jes_entries = [
+                    (name, func)
+                    for name, func in raw_juncs
+                    if self._variation_control.allows_jes_component(name)
+                ]
 
             elif self.tool == "clib":
-                uncnames, uncvalues = [], []
                 for junc_name in self.jec_stack.jec_uncsources_clib:
                     sf = self.corrections[junc_name]
                     if sf is None:
@@ -345,10 +354,15 @@ class CorrectedJetsFactory(object):
                     central = ak.ones_like(jagged_out[self.name_map["JetPt"]])
                     unc_up = central + jagged_unc
                     unc_down = central - jagged_unc
-                    uncnames.append(junc_name.split("_")[-2])
-                    uncvalues.append(ak.concatenate([unc_up[..., None], unc_down[..., None]], axis=-1))
-
-                juncs = zip(uncnames, uncvalues)
+                    component_name = junc_name.split("_")[-2]
+                    if not self._variation_control.allows_jes_component(component_name):
+                        continue
+                    jes_entries.append(
+                        (
+                            component_name,
+                            ak.concatenate([unc_up[..., None], unc_down[..., None]], axis=-1),
+                        )
+                    )
 
             def build_variation(unc, jetpt, jetpt_orig, jetmass, jetmass_orig, updown):
                 factor = unc[..., updown]
@@ -364,7 +378,7 @@ class CorrectedJetsFactory(object):
 
             template_pt = jagged_out[junc_name_map["JetPt"]]
             template_mass = jagged_out[junc_name_map["JetMass"]]
-            for name, func in juncs:
+            for name, func in jes_entries:
                 jagged_unc = _as_jagged_per_jet(func, counts, f"JES uncertainty {name}")
                 jagged_out[f"jet_energy_uncertainty_{name}"] = jagged_unc
                 jes_systematics[name] = build_variant(
