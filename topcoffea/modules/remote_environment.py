@@ -17,8 +17,7 @@ from typing import Dict, List, Optional
 
 from .env_cache import build_env_tarball_path, cache_glob_pattern
 
-logger = logging.getLogger()
-logging.basicConfig(level=logging.INFO, format='%(asctime)s:%(levelname)s:%(message)s')
+logger = logging.getLogger(__name__)
 
 env_dir_cache = Path.cwd().joinpath(Path('topeft-envs'))
 
