@@ -197,7 +197,8 @@ class CorrectedJetsFactory(object):
                     raise ValueError(f"Correction {lvl} not found in self.corrections")
 
                 inputs = get_corr_inputs(jets=jets, corr_obj=sf, name_map=jec_name_map, corrections=cumCorr)
-                correction = ak.values_astype(sf.evaluate(*inputs), numpy.float32)
+                #correction = ak.values_astype(sf.evaluate(*inputs), numpy.float32)
+                correction = sf.evaluate(*inputs).astype(dtype=numpy.float32)
                 jagged_correction = _as_jagged_per_jet(correction, counts, f"Correction {lvl}")
                 corrections_list.append(jagged_correction)
                 total_correction = ak.values_astype(total_correction * jagged_correction, numpy.float32)
@@ -227,6 +228,11 @@ class CorrectedJetsFactory(object):
         jer_systematic = None
         jes_systematics = {}
 
+        jagged_out = dict(out_dict)
+        jer_systematic = None
+        jes_systematics = {}
+
+        # --- JER availability check ---
         if self.tool == "jecstack":
             has_jer = self.jec_stack.jer is not None and self.jec_stack.jersf is not None
         elif self.tool == "clib":
@@ -234,8 +240,12 @@ class CorrectedJetsFactory(object):
         else:
             has_jer = False
 
-        jer_enabled = has_jer and self._variation_control.allow_jer
-        if jer_enabled:
+        # Always apply nominal JER if available;
+        # only build JER up/down systematics when variations are allowed.
+        jer_nominal_enabled = has_jer
+        jer_systematics_enabled = has_jer and self._variation_control.allow_jer
+
+        if jer_nominal_enabled:
             jer_name_map = dict(self.name_map)
             jer_name_map["JetPt"] = jer_name_map["JetPt"] + "_jec"
             jer_name_map["JetMass"] = jer_name_map["JetMass"] + "_jec"
@@ -269,6 +279,7 @@ class CorrectedJetsFactory(object):
                     else:
                         correction = ak.values_astype(sf.evaluate(*inputs), numpy.float32)
                         jet_energy_resolution = _as_jagged_per_jet(correction, counts, outtag)
+
                 if jet_energy_resolution is None:
                     jet_energy_resolution = ak.zeros_like(jagged_out[jer_name_map["JetPt"]])
                 if jet_energy_resolution_scale_factor is None:
@@ -277,6 +288,7 @@ class CorrectedJetsFactory(object):
             rng = numpy.random.default_rng()
             jet_resolution_rand_gauss = _random_gauss(counts, rng)
 
+            # --- nominal JER smearing (always applied if has_jer) ---
             jer_correction = jer_smear(
                 variation=0,
                 forceStochastic=self.forceStochastic,
@@ -299,34 +311,48 @@ class CorrectedJetsFactory(object):
             jagged_out[self.name_map["JetPt"] + "_jer"] = jagged_out[self.name_map["JetPt"]]
             jagged_out[self.name_map["JetMass"] + "_jer"] = jagged_out[self.name_map["JetMass"]]
 
-            def build_jer_variant(variation_index):
-                correction = jer_smear(
-                    variation=variation_index,
-                    forceStochastic=self.forceStochastic,
-                    pt_gen=ak.values_astype(jagged_out[jer_name_map.get("ptGenJet", "ptGenJet")], numpy.float32),
-                    jetPt=ak.values_astype(jagged_out[jer_name_map["JetPt"]], numpy.float32),
-                    etaJet=ak.values_astype(jagged_out[jer_name_map["JetEta"]], numpy.float32),
-                    jet_energy_resolution=ak.values_astype(jet_energy_resolution, numpy.float32),
-                    jet_resolution_rand_gauss=ak.values_astype(jet_resolution_rand_gauss, numpy.float32),
-                    jet_energy_resolution_scale_factor=ak.values_astype(jet_energy_resolution_scale_factor, numpy.float32),
+            # --- only build JER up/down systematics if requested ---
+            if jer_systematics_enabled:
+                def build_jer_variant(variation_index):
+                    correction = jer_smear(
+                        variation=variation_index,
+                        forceStochastic=self.forceStochastic,
+                        pt_gen=ak.values_astype(jagged_out[jer_name_map.get("ptGenJet", "ptGenJet")], numpy.float32),
+                        jetPt=ak.values_astype(jagged_out[jer_name_map["JetPt"]], numpy.float32),
+                        etaJet=ak.values_astype(jagged_out[jer_name_map["JetEta"]], numpy.float32),
+                        jet_energy_resolution=ak.values_astype(jet_energy_resolution, numpy.float32),
+                        jet_resolution_rand_gauss=ak.values_astype(jet_resolution_rand_gauss, numpy.float32),
+                        jet_energy_resolution_scale_factor=ak.values_astype(
+                            jet_energy_resolution_scale_factor, numpy.float32
+                        ),
+                    )
+
+                    var_dict = {field: jagged_out[field] for field in in_dict}
+                    var_dict[self.name_map["JetPt"]] = correction * jagged_out[jer_name_map["JetPt"]]
+                    var_dict[self.name_map["JetMass"]] = correction * jagged_out[jer_name_map["JetMass"]]
+                    return ak.zip(var_dict, depth_limit=1, parameters=parameters, behavior=behavior)
+
+                jer_systematic = ak.zip(
+                    {"up": build_jer_variant(1), "down": build_jer_variant(2)},
+                    depth_limit=1,
+                    with_name="JetSystematic",
                 )
 
-                var_dict = {field: jagged_out[field] for field in in_dict}
-                var_dict[self.name_map["JetPt"]] = correction * jagged_out[jer_name_map["JetPt"]]
-                var_dict[self.name_map["JetMass"]] = correction * jagged_out[jer_name_map["JetMass"]]
-                return ak.zip(var_dict, depth_limit=1, parameters=parameters, behavior=behavior)
-
-            jer_systematic = ak.zip({"up": build_jer_variant(1), "down": build_jer_variant(2)}, depth_limit=1, with_name="JetSystematic")
-
+        # --- JES (JEC uncertainties) ---
         has_junc = self.jec_stack.junc is not None
         if self.tool == "clib":
             has_junc = len(self.jec_stack.jec_uncsources_clib) > 0
+
         jes_entries = []
         jes_enabled = has_junc and self._variation_control.allow_jes
 
         if jes_enabled:
             junc_name_map = dict(self.name_map)
-            if jer_systematic is not None:
+
+            # IMPORTANT: follow legacy behavior:
+            # If JER is configured at all, JES is defined on top of the JER-smeared jets,
+            # regardless of whether we built JER up/down variations.
+            if has_jer:
                 junc_name_map["JetPt"] = junc_name_map["JetPt"] + "_jer"
                 junc_name_map["JetMass"] = junc_name_map["JetMass"] + "_jer"
             else:
@@ -349,14 +375,17 @@ class CorrectedJetsFactory(object):
                         raise ValueError(f"Correction {junc_name} not found in self.corrections")
 
                     inputs = get_corr_inputs(jets=jagged_out, corr_obj=sf, name_map=junc_name_map)
+                    # 'unc' here is the relative uncertainty δ; we build (1±δ) factors
                     unc = ak.values_astype(sf.evaluate(*inputs), numpy.float32)
                     jagged_unc = _as_jagged_per_jet(unc, counts, f"JES uncertainty {junc_name}")
                     central = ak.ones_like(jagged_out[self.name_map["JetPt"]])
                     unc_up = central + jagged_unc
                     unc_down = central - jagged_unc
+
                     component_name = junc_name.split("_")[-2]
                     if not self._variation_control.allows_jes_component(component_name):
                         continue
+
                     jes_entries.append(
                         (
                             component_name,
@@ -364,9 +393,14 @@ class CorrectedJetsFactory(object):
                         )
                     )
 
+            # Use *input* jets as the base record for JES variants (legacy behavior):
+            #   - Start from the original "jets" collection
+            #   - Override pt/mass with (JER- or JEC-corrected) * JES factor
+            base_dict = {field: in_dict[field] for field in in_dict}
+
             def build_variation(unc, jetpt, jetpt_orig, jetmass, jetmass_orig, updown):
                 factor = unc[..., updown]
-                var_dict = {field: jagged_out[field] for field in in_dict}
+                var_dict = dict(base_dict)
                 var_dict[jetpt] = factor * jetpt_orig
                 var_dict[jetmass] = factor * jetmass_orig
                 return ak.zip(var_dict, depth_limit=1, parameters=parameters, behavior=behavior)
@@ -378,6 +412,7 @@ class CorrectedJetsFactory(object):
 
             template_pt = jagged_out[junc_name_map["JetPt"]]
             template_mass = jagged_out[junc_name_map["JetMass"]]
+
             for name, func in jes_entries:
                 jagged_unc = _as_jagged_per_jet(func, counts, f"JES uncertainty {name}")
                 jagged_out[f"jet_energy_uncertainty_{name}"] = jagged_unc
