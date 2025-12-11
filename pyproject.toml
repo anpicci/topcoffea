@@ -30,6 +30,7 @@ dependencies = [
     "pandas>=2.2,<2.3",
     "pytest",
     "pyyaml",
+    "dynamic_data_reduction>=2025.12.1",
 ]
 
 [project.optional-dependencies]
