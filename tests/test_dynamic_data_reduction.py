@@ -4,6 +4,8 @@ import sys
 import types
 from unittest import mock
 
+import pytest
+
 if "numpy" not in sys.modules:
     dummy_np = types.ModuleType("numpy")
     dummy_np.__version__ = "0.0"
@@ -84,6 +86,8 @@ def test_run_ddr_invokes_preprocess_and_ddr(mock_preprocess, mock_ddr):
     assert result == {"accumulator": 1}
 
 
+@pytest.mark.integration
+@pytest.mark.taskvine
 def test_executor_cli_accepts_taskvine_executor(tmp_path):
     fake_env = tmp_path / "env.tar.gz"
     fake_env.write_text("placeholder")

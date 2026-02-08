@@ -5,6 +5,8 @@ import pytest
 from topcoffea.modules import executor_cli
 
 
+@pytest.mark.integration
+@pytest.mark.taskvine
 def test_executor_config_auto_environment(monkeypatch):
     calls = {}
 
@@ -30,6 +32,8 @@ def test_executor_config_auto_environment(monkeypatch):
     )
 
 
+@pytest.mark.integration
+@pytest.mark.taskvine
 def test_executor_config_merges_extra_local(monkeypatch):
     seen = {}
 
@@ -72,7 +76,23 @@ def test_executor_config_skips_environment_for_futures(monkeypatch):
     assert config.environment_file is None
 
 
-@pytest.mark.parametrize("executor", ("futures", "iterative", "taskvine", "TASKVINE"))
+@pytest.mark.parametrize(
+    "executor",
+    (
+        "futures",
+        "iterative",
+        pytest.param(
+            "taskvine",
+            marks=(pytest.mark.integration, pytest.mark.taskvine),
+            id="taskvine",
+        ),
+        pytest.param(
+            "TASKVINE",
+            marks=(pytest.mark.integration, pytest.mark.taskvine),
+            id="TASKVINE",
+        ),
+    ),
+)
 def test_executor_normalisation_accepts_supported(executor):
     config = executor_cli.executor_config_from_values(executor=executor)
     assert config.executor == executor.strip().lower()
@@ -83,12 +103,26 @@ def test_executor_normalisation_accepts_supported(executor):
     )
 
 
-@pytest.mark.parametrize("executor", ("ddr", "work_queue", "taskvine_ddr", "unknown"))
+@pytest.mark.parametrize(
+    "executor",
+    (
+        "ddr",
+        "work_queue",
+        pytest.param(
+            "taskvine_ddr",
+            marks=(pytest.mark.integration, pytest.mark.taskvine),
+            id="taskvine_ddr",
+        ),
+        "unknown",
+    ),
+)
 def test_executor_normalisation_rejects_unsupported(executor):
     with pytest.raises(ValueError, match="Unsupported executor"):
         executor_cli.executor_config_from_values(executor=executor)
 
 
+@pytest.mark.integration
+@pytest.mark.taskvine
 def test_executor_argument_help_and_validation():
     parser = argparse.ArgumentParser(prog="prog", add_help=False)
     executor_cli.register_executor_arguments(parser)

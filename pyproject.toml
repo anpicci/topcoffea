@@ -68,3 +68,10 @@ topcoffea = [
     "data/btag_sf_correctionlib/*json",
     "data/POG/*/*/*json.gz",
 ]
+
+[tool.pytest.ini_options]
+addopts = "-m \"not integration\""
+markers = [
+    "integration: integration tests that require external runtime prerequisites",
+    "taskvine: tests that exercise TaskVine-specific execution paths",
+]
