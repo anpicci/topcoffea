@@ -217,7 +217,6 @@ TbarWplustoLNu2Q_13p6TeV           : 19.36
 TWminustoLNu2Q_13p6TeV             : 19.36
 
 #NEW from multileptons for Run3
-<<<<<<< HEAD
 ttHnobb_13p6TeV : 0.24111				#SMP-24-001
 ttHnobb-1Jets_13p6TeV : 0.5742				#XSDB
 TTLNu_13p6TeV : 0.2505					#XSDB
@@ -258,25 +257,5 @@ ZG_MLL-50_PTG-100to200_13p6TeV : 0.3493     #XSDB
 ZG_MLL-50_PTG-200to400_13p6TeV : 0.04331    #XSDB
 ZG_MLL-50_PTG-400to600_13p6TeV : 0.00313    #XSDB
 ZG_MLL-50_PTG-600_13p6TeV : 0.0006528       #XSDB
-=======
-ttHnobb-1Jets_13p6TeV 		: 0.5742		#XSDB
-TTLNu_13p6TeV 			: 0.2505		#XSDB
-TZQB-Zto2L-4FS_MLL-30_13p6TeV 	: 0.0801		#SMP-24-005 #to be completed
-TTTT_13p6TeV  			: 0.01582		#TOP-25-006
-TTG-1Jets_PTG-10to100_13p6TeV 	: 4.216			#XSDB
-TTG-1Jets_PTG-100to200_13p6TeV	: 0.4114		#XSDB
-TTG-1Jets_PTG-200_13p6TeV 	: 0.1284		#XSDB
-TTtoLNu2Q_13p6TeV 		: 762.1  		#XSDB
-TWZ_Tto2Q_WtoLNu_Zto2L_13p6TeV 	: 0.003338		#XSDB
-TWZ_TtoLNu_Wto2Q_Zto2L_13p6TeV 	: 0.003338		#XSDB
-WJetsToLNu_13p6TeV 		: 64481.58	  	#SMP-24-001
-ZZTo4L-1Jet_13p6TeV 		: 1.499			#XSDB
-#ggToZZTo2e2nu_13p6TeV  		:  			#TO BE ADDED WHEN AVAILABLE
-#ggToZZTo2mu2nu_13p6TeV 		: 0.003			#TO BE ADDED WHEN AVAILABLE
-DYJetsToLL_MLL-10to50_13p6TeV 	: 19982.5		#SMP-24-005
-DYJetsToLL_MLL-50_13p6TeV 	: 7345.99		#SMP-24-005
-ST_tW_Semileptonic_13p6TeV 	: 19.36			#SMP-24-001
-ST_tbarW_Semileptonic_13p6TeV  	: 19.36			#SMP-24-001
->>>>>>> 3294694107450d5c114cd76bc7c7d0323158f625
 
 data                           : 1.0
