@@ -4,6 +4,8 @@ import sys
 import types
 from unittest import mock
 
+import pytest
+
 if "numpy" not in sys.modules:
     dummy_np = types.ModuleType("numpy")
     dummy_np.__version__ = "0.0"
@@ -40,7 +42,13 @@ def test_build_ddr_data_from_flist_basic():
 @mock.patch.object(ddr_module, "CoffeaDynamicDataReduction")
 @mock.patch.object(ddr_module, "preprocess")
 def test_run_ddr_invokes_preprocess_and_ddr(mock_preprocess, mock_ddr):
-    mock_preprocess.return_value = {"preprocessed": True}
+    mock_preprocess.return_value = {
+        "sample": {
+            "files": {
+                "/path.root": {"object_path": "Events", "num_entries": 5},
+            }
+        }
+    }
     mock_ddr.return_value.compute.return_value = {"accumulator": 1}
 
     manager = object()
@@ -66,12 +74,20 @@ def test_run_ddr_invokes_preprocess_and_ddr(mock_preprocess, mock_ddr):
 
     mock_ddr.assert_called_once()
     ddr_kwargs = mock_ddr.call_args.kwargs
-    assert ddr_kwargs["data"] == {"preprocessed": True}
+    assert ddr_kwargs["data"] == {
+        "sample": {
+            "files": {
+                "/path.root": {"object_path": "Events", "num_entries": 5},
+            }
+        }
+    }
     assert ddr_kwargs["processors"] is processors
     assert ddr_kwargs["extra_files"] == ("analysis.py",)
     assert result == {"accumulator": 1}
 
 
+@pytest.mark.integration
+@pytest.mark.taskvine
 def test_executor_cli_accepts_taskvine_executor(tmp_path):
     fake_env = tmp_path / "env.tar.gz"
     fake_env.write_text("placeholder")

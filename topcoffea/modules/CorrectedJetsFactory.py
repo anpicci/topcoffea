@@ -38,6 +38,12 @@ def _as_jagged_per_jet(arr, counts, label):
     return ak.unflatten(array, counts, axis=0)
 
 
+def _to_float32(values):
+    if isinstance(values, ak.Array):
+        return ak.values_astype(values, numpy.float32)
+    return numpy.asarray(values, dtype=numpy.float32)
+
+
 def jer_smear(
     variation,
     forceStochastic,
@@ -197,8 +203,7 @@ class CorrectedJetsFactory(object):
                     raise ValueError(f"Correction {lvl} not found in self.corrections")
 
                 inputs = get_corr_inputs(jets=jets, corr_obj=sf, name_map=jec_name_map, corrections=cumCorr)
-                #correction = ak.values_astype(sf.evaluate(*inputs), numpy.float32)
-                correction = sf.evaluate(*inputs).astype(dtype=numpy.float32)
+                correction = _to_float32(sf.evaluate(*inputs))
                 jagged_correction = _as_jagged_per_jet(correction, counts, f"Correction {lvl}")
                 corrections_list.append(jagged_correction)
                 total_correction = ak.values_astype(total_correction * jagged_correction, numpy.float32)
@@ -255,8 +260,18 @@ class CorrectedJetsFactory(object):
                 jer_resolution_flat = self.jec_stack.jer.getResolution(**jer_args)
                 jet_energy_resolution = _as_jagged_per_jet(jer_resolution_flat, counts, "JER resolution")
 
-                jersf_args = {k: ak.flatten(jagged_out[jer_name_map[k]]) for k in self.jec_stack.jersf.signature}
-                jersf_flat = self.jec_stack.jersf.getScaleFactor(**jersf_args)
+                jersf_args_flat = {
+                    k: ak.flatten(jagged_out[jer_name_map[k]], axis=None) for k in self.jec_stack.jersf.signature
+                }
+                try:
+                    jersf_flat = self.jec_stack.jersf.getScaleFactor(**jersf_args_flat)
+                except Exception as flat_exc:
+                    # Some implementations expect jagged inputs and flatten internally.
+                    jersf_args_jagged = {k: jagged_out[jer_name_map[k]] for k in self.jec_stack.jersf.signature}
+                    try:
+                        jersf_flat = self.jec_stack.jersf.getScaleFactor(**jersf_args_jagged)
+                    except Exception:
+                        raise flat_exc
                 jet_energy_resolution_scale_factor = _as_jagged_per_jet(jersf_flat, counts, "JER scale factor")
 
             elif self.tool == "clib":
@@ -382,7 +397,8 @@ class CorrectedJetsFactory(object):
                     unc_up = central + jagged_unc
                     unc_down = central - jagged_unc
 
-                    component_name = junc_name.split("_")[-2]
+                    name_tokens = junc_name.split("_")
+                    component_name = name_tokens[-2] if len(name_tokens) >= 3 else name_tokens[-1]
                     if not self._variation_control.allows_jes_component(component_name):
                         continue
 

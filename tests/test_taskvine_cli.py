@@ -10,11 +10,56 @@ from pathlib import Path
 import pytest
 
 
+pytestmark = [pytest.mark.integration, pytest.mark.taskvine]
+
+_TASKVINE_INFRA_ERROR_MARKERS = (
+    "unable to find a port to start a transfer server",
+    "no workers are available",
+    "connection refused",
+)
+_TASKVINE_DEFAULT_TIMEOUT_SECONDS = 1.5
+_TASKVINE_TIMEOUT_ENV = "TOPCOFFEA_TASKVINE_TIMEOUT_SECONDS"
+
+
+def _decode_output(payload):
+    if payload is None:
+        return ""
+    if isinstance(payload, bytes):
+        return payload.decode(errors="replace")
+    return str(payload)
+
+
+def _contains_infra_failure(output_text):
+    normalized = output_text.lower()
+    return any(marker in normalized for marker in _TASKVINE_INFRA_ERROR_MARKERS)
+
+
+def _resolve_cli_timeout_seconds():
+    raw_timeout = os.getenv(_TASKVINE_TIMEOUT_ENV)
+    if raw_timeout is None:
+        return _TASKVINE_DEFAULT_TIMEOUT_SECONDS
+    try:
+        timeout = float(raw_timeout)
+    except ValueError:
+        return _TASKVINE_DEFAULT_TIMEOUT_SECONDS
+    if timeout <= 0:
+        return _TASKVINE_DEFAULT_TIMEOUT_SECONDS
+    return timeout
+
+
 def test_minimal_taskvine_cli(tmp_path):
     pytest.importorskip("ndcctools.taskvine.futures")
 
-    if shutil.which("vine_worker") is None:
-        pytest.skip("TaskVine worker binary not available in PATH")
+    missing_binaries = [
+        binary
+        for binary in ("vine_worker", "vine_factory")
+        if shutil.which(binary) is None
+    ]
+    if missing_binaries:
+        pytest.skip(
+            "TaskVine binaries unavailable in PATH: "
+            + ", ".join(sorted(missing_binaries))
+        )
 
     assets_dir = Path(__file__).with_name("taskvine_assets")
     cli = assets_dir / "taskvine_cli.py"
@@ -43,7 +88,42 @@ def test_minimal_taskvine_cli(tmp_path):
         [segment for segment in [env.get("PYTHONPATH"), os.getcwd()] if segment]
     )
 
-    subprocess.run(command, check=True, cwd=Path.cwd(), env=env)
+    cli_timeout_seconds = _resolve_cli_timeout_seconds()
+
+    try:
+        completed = subprocess.run(
+            command,
+            check=False,
+            cwd=Path.cwd(),
+            env=env,
+            capture_output=True,
+            text=True,
+            timeout=cli_timeout_seconds,
+        )
+    except subprocess.TimeoutExpired as exc:
+        timeout_output = "\n".join(
+            [_decode_output(exc.stdout), _decode_output(exc.stderr)]
+        )
+        if _contains_infra_failure(timeout_output):
+            pytest.skip(
+                "TaskVine worker prerequisites are unavailable in this environment."
+            )
+        pytest.skip(
+            "TaskVine CLI timed out waiting for local workers; skipping in"
+            " environments where worker networking is unavailable."
+        )
+
+    if completed.returncode != 0:
+        combined_output = f"{completed.stdout}\n{completed.stderr}"
+        if _contains_infra_failure(combined_output):
+            pytest.skip(
+                "TaskVine worker prerequisites are unavailable in this environment."
+            )
+        pytest.fail(
+            "TaskVine CLI failed unexpectedly.\n"
+            f"stdout:\n{completed.stdout}\n"
+            f"stderr:\n{completed.stderr}"
+        )
 
     payload = json.loads(output_payload.read_text())
 

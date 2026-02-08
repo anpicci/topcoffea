@@ -37,10 +37,7 @@ default_modules = {
         ],
     },
     "pip": [
-        "numpy==2.0.2",
-        "pandas==2.2.3",
-        "topcoffea==0.0.0",
-        "topeft==0.0.0",
+        "topcoffea",
     ],
 }
 
