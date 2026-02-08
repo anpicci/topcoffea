@@ -72,6 +72,26 @@ analysis scripts. This matches the CI installation check and guarantees that
 Running the smoke test mirrors the CI check and guarantees that modules such as
 `topcoffea.modules.utils` can be imported by downstream repositories.
 
+## Testing
+
+Default `pytest` runs exclude integration tests (`addopts = -m "not integration"`).
+
+```bash
+# Default unit-ish suite (integration excluded by default)
+pytest -q
+
+# Equivalent explicit selector
+pytest -q -k "not taskvine"
+
+# Run all integration tests
+pytest -q -m integration
+
+# Run only TaskVine/Vine integration tests
+pytest -q -m integration -k "taskvine or vine"
+
+# Override TaskVine CLI timeout (seconds)
+TOPCOFFEA_TASKVINE_TIMEOUT_SECONDS=30 pytest -q -m integration tests/test_taskvine_cli.py::test_minimal_taskvine_cli
+```
 
 
 ## Documentation
