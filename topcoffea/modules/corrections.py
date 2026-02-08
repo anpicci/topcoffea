@@ -199,16 +199,20 @@ def AttachPSWeights(events):
     FSRUp == ISR=1 FSR=2
     """
 
-    # Check if PSWeight exists in the event
-    if events["PSWeight"] is None:
-        raise Exception("PSWeight not found!")
+    try:
+        ps_weights = events["PSWeight"]
+    except Exception as exc:
+        raise KeyError("PSWeight not found in events") from exc
+
+    if ps_weights is None:
+        raise ValueError("PSWeight not found in events")
 
     # Get the PSWeight documentation
-    psweight_doc = events["PSWeight"].__doc__
+    psweight_doc = getattr(ps_weights, "__doc__", None)
 
     # If PSWeight.__doc__ is empty or malformed
     if not psweight_doc:
-        raise Exception("PSWeight.__doc__ is empty or not available!")
+        raise ValueError("PSWeight.__doc__ is empty or not available")
 
     # Define the mapping we are looking for
     ps_map = {
@@ -237,15 +241,19 @@ def AttachPSWeights(events):
 
     # Check if all needed weights were found
     if not all(key in ps_indices for key in required_keys):
-        raise Exception("Not all ISR/FSR weight variations found in PSWeight.__doc__!")
+        missing_keys = [key for key in required_keys if key not in ps_indices]
+        raise ValueError(
+            "Not all ISR/FSR weight variations found in PSWeight.__doc__; "
+            f"missing {missing_keys}"
+        )
 
     # Add up variation event weights
-    events["ISRUp"] = events["PSWeight"][:, ps_indices["ISRUp"]]
-    events["FSRUp"] = events["PSWeight"][:, ps_indices["FSRUp"]]
+    events["ISRUp"] = ps_weights[:, ps_indices["ISRUp"]]
+    events["FSRUp"] = ps_weights[:, ps_indices["FSRUp"]]
 
     # Add down variation event weights
-    events["ISRDown"] = events["PSWeight"][:, ps_indices["ISRDown"]]
-    events["FSRDown"] = events["PSWeight"][:, ps_indices["FSRDown"]]
+    events["ISRDown"] = ps_weights[:, ps_indices["ISRDown"]]
+    events["FSRDown"] = ps_weights[:, ps_indices["FSRDown"]]
 
 
 def AttachScaleWeights(events):
@@ -274,17 +282,17 @@ def AttachScaleWeights(events):
         [7] is MUF = "2.0" MUR = "2.0"
     """
 
-    # Check if LHEScaleWeight exists in the event
-    if events["LHEScaleWeight"] is None:
-        raise Exception("LHEScaleWeight not found!")
+    try:
+        lhe_scale_weights = events["LHEScaleWeight"]
+    except Exception as exc:
+        raise KeyError("LHEScaleWeight not found in events") from exc
+
+    if lhe_scale_weights is None:
+        raise ValueError("LHEScaleWeight not found in events")
 
     # Get the LHEScaleWeight documentation
-    scale_weight_doc = events["LHEScaleWeight"].__doc__
-
-    does_doc_exist = True
-    if not scale_weight_doc:
-        # raise Exception('LHEScaleWeight.__doc__ is empty or not available!')
-        does_doc_exist = False
+    scale_weight_doc = getattr(lhe_scale_weights, "__doc__", None)
+    does_doc_exist = bool(scale_weight_doc)
 
     # Define the mapping we are looking for the three scenarios
     scenarios_map = {
@@ -338,7 +346,7 @@ def AttachScaleWeights(events):
     }
 
     # Determine the number of weights available
-    len_of_wgts = ak.count(events["LHEScaleWeight"], axis=-1)
+    len_of_wgts = ak.count(lhe_scale_weights, axis=-1)
     all_len_9_or_0_bool = ak.all((len_of_wgts == 9) | (len_of_wgts == 0))
     all_len_8_or_0_bool = ak.all((len_of_wgts == 8) | (len_of_wgts == 0))
     scale_weights = None
@@ -348,18 +356,27 @@ def AttachScaleWeights(events):
 
     # Choose between the different cases based on the number of weights and the doc string
     if all_len_9_or_0_bool:
-        if "renscfact" in scale_weight_doc:
+        if does_doc_exist and "renscfact" in scale_weight_doc:
             scenario = "renscfact"  # Scenario 1: renscfact/facscfact
-        elif "MUF" in scale_weight_doc:
+        elif does_doc_exist and "MUF" in scale_weight_doc:
             scenario = "MUF9"  # Scenario 2: MUF/MUR with 9 weights
+        elif does_doc_exist:
+            raise ValueError(
+                "LHEScaleWeight.__doc__ does not contain a supported 9-weight layout "
+                "(expected 'renscfact' or 'MUF')"
+            )
     elif all_len_8_or_0_bool:
         scenario = "MUF8"  # Scenario 3: MUF/MUR with 8 weights
     else:
-        raise Exception("Unknown weight type")
+        unique_lengths = ak.to_list(ak.unique(len_of_wgts))
+        raise ValueError(
+            f"Unknown LHEScaleWeight layout with lengths {unique_lengths}; "
+            "expected all 8/0 or all 9/0."
+        )
 
     scale_weights = ak.fill_none(
         ak.pad_none(
-            events["LHEScaleWeight"],
+            lhe_scale_weights,
             (
                 9
                 if (scenario == "MUF9" or scenario == "renscfact" or scenario is None)
@@ -371,7 +388,7 @@ def AttachScaleWeights(events):
     # Dictionary to hold the index of each variation
     scale_indices = {}
 
-    if scenario is not None:
+    if scenario is not None and does_doc_exist:
         matches = re.findall(scenarios_map[scenario]["re_pattern"], scale_weight_doc)
         scale_map = scenarios_map[scenario]["scale_map"]
         key = scenarios_map[scenario]["key"]
@@ -389,8 +406,9 @@ def AttachScaleWeights(events):
         # Check if all needed weights were found
         if not all(key in scale_indices for key in required_keys):
             missing_keys = [key for key in required_keys if key not in scale_indices]
-            raise Exception(
-                "Not all scale weight variations found in LHEScaleWeight.__doc__!"
+            raise ValueError(
+                "Not all scale weight variations found in LHEScaleWeight.__doc__; "
+                f"missing {missing_keys}"
             )
 
     else:
