@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import numbers
 from typing import Any, Dict, Mapping, MutableMapping, Optional, Sequence, Tuple
 
 try:  # pragma: no cover - optional dependency
@@ -18,6 +19,7 @@ logger = logging.getLogger(__name__)
 
 __all__ = [
     "build_ddr_data_from_flist",
+    "filter_preprocessed_data",
     "run_ddr",
 ]
 
@@ -67,6 +69,77 @@ def build_ddr_data_from_flist(
     return data
 
 
+def _is_valid_num_entries(value: Any) -> bool:
+    """Return True when *value* encodes a valid entry count."""
+
+    if isinstance(value, bool):
+        return False
+    if isinstance(value, numbers.Real):
+        return value >= 1
+    return False
+
+
+def filter_preprocessed_data(
+    preprocessed_data: Mapping[str, Mapping[str, Any]]
+) -> Tuple[Dict[str, Dict[str, Any]], Dict[str, Any]]:
+    """Filter the preprocess() output, separating usable vs failed files."""
+
+    filtered: Dict[str, Dict[str, Any]] = {}
+    bad_files = []
+    dropped_datasets = []
+    total_files = 0
+    kept_files = 0
+
+    for dataset, specs in preprocessed_data.items():
+        files = dict(specs.get("files", {}))
+        filtered_files: Dict[str, Dict[str, Any]] = {}
+        for path, file_info in files.items():
+            total_files += 1
+            num_entries = file_info.get("num_entries")
+            if _is_valid_num_entries(num_entries):
+                filtered_files[path] = file_info
+                kept_files += 1
+            else:
+                bad_files.append((dataset, path, num_entries))
+        if filtered_files:
+            copied_specs = dict(specs)
+            copied_specs["files"] = filtered_files
+            filtered[dataset] = copied_specs
+        else:
+            dropped_datasets.append(dataset)
+
+    summary = {
+        "total_files": total_files,
+        "good_files_count": kept_files,
+        "bad_files_count": len(bad_files),
+        "bad_files": bad_files,
+        "dropped_datasets": dropped_datasets,
+    }
+    return filtered, summary
+
+
+def _diagnose_failed_file(path: str, tree_name: str) -> str:
+    """Attempt to open *path* locally to provide diagnostics for logging."""
+
+    try:
+        import uproot
+    except ImportError:  # pragma: no cover - environment issue
+        return "uproot not available in driver environment"
+
+    try:
+        with uproot.open(path, timeout=10) as root_file:
+            if tree_name not in root_file:
+                return f"opened but tree '{tree_name}' missing"
+            tree = root_file[tree_name]
+            try:
+                entries = tree.num_entries
+            except Exception:
+                entries = None
+            return f"opened locally (num_entries={entries})"
+    except Exception as exc:  # pragma: no cover - exercised via tests
+        return f"{exc.__class__.__name__}: {exc}"
+
+
 def run_ddr(
     *,
     manager: Any,
@@ -98,6 +171,36 @@ def run_ddr(
         **preprocess_options,
     )
     logger.info("Preprocessing complete")
+    filtered_data, summary = filter_preprocessed_data(preprocessed_data)
+
+    if summary["bad_files_count"] > 0:
+        logger.warning(
+            "DDR preprocess marked %d/%d files unusable",
+            summary["bad_files_count"],
+            summary["total_files"],
+        )
+        for dataset, path, num_entries in summary["bad_files"]:
+            diagnosis = _diagnose_failed_file(path, tree_arg)
+            logger.warning(
+                "Failed preprocess: dataset=%s file=%s num_entries=%r (%s)",
+                dataset,
+                path,
+                num_entries,
+                diagnosis,
+            )
+
+    if summary["dropped_datasets"]:
+        logger.warning(
+            "Dropped %d datasets with no usable files: %s",
+            len(summary["dropped_datasets"]),
+            ", ".join(summary["dropped_datasets"]),
+        )
+
+    if summary["good_files_count"] == 0 and summary["total_files"] > 0:
+        raise RuntimeError(
+            "Dynamic data reduction preprocessing completed but produced no usable files. "
+            "Inspect TaskVine/DDR logs and XRootD connectivity for the failed files above."
+        )
 
     ddr_options = dict(ddr_kwargs or {})
     if extra_files is not None and "extra_files" not in ddr_options:
@@ -106,7 +209,7 @@ def run_ddr(
     logger.info("Constructing CoffeaDynamicDataReduction (processors: %d)", len(processors))
     ddr = CoffeaDynamicDataReduction(
         manager,
-        data=preprocessed_data,
+        data=filtered_data,
         processors=processors,
         accumulator=accumulator,
         schema=schema,
