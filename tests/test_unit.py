@@ -1,7 +1,6 @@
 import numpy as np
 import awkward as ak
 import coffea.hist as hist
-import pytest
 from topcoffea.modules.histEFT import HistEFT
 from topcoffea.modules.WCPoint import WCPoint
 from topcoffea.modules.WCFit import WCFit
@@ -263,248 +262,57 @@ def test_stats():
 
 ########################### HistEFT unit tests ###########################
 
-@pytest.mark.xfail(
-    reason=(
-        "Legacy HistEFT unit tests still target the coffea.hist based"
-        " implementation and require helper methods that were removed during"
-        " the boost-histogram migration."
-    ),
-    strict=False,
-)
 def test_histeft():
-    chk_str = ''
-    unit_chk = True
-    all_chks,units = [0]*2
-    result,expected,diff,tolerance = [0]*4
-    tolerance = 1e-4
+    import hist as modern_hist
 
-    wc_names = ['sm','ctG','ctZ']
+    h_base = HistEFT(
+        modern_hist.axis.StrCategory([], name="process", growth=True),
+        modern_hist.axis.Regular(2, 0, 2, name="observable"),
+        wc_names=["ctG", "ctZ"],
+        label="Events",
+    )
 
-    # The structure constants
-    s00 = 1.0
-    s10 = 1.5
-    s11 = 1.25
-    sconst = [s00, s10, s11]
+    eft_coeff = np.array(
+        [
+            [1.00, 0.40, 0.20, -0.10, 0.05, 0.30],
+            [0.70, -0.20, 0.60, 0.10, -0.15, 0.25],
+        ],
+        dtype=float,
+    )
+    h_base.fill(
+        process="signal",
+        observable=np.array([0.5, 1.5], dtype=float),
+        eft_coeff=eft_coeff,
+    )
+    h_base.fill(
+        process="background",
+        observable=np.array([0.5], dtype=float),
+        weight=np.array([2.0], dtype=float),
+    )
 
-    # A dummy WC name to use
-    wc_name = 'ctG'
+    eval_map = h_base.eval({"ctG": 0.25, "ctZ": -0.10})
+    eval_arr = h_base.eval(np.array([0.25, -0.10], dtype=float))
+    assert np.allclose(eval_map[("signal",)], eval_arr[("signal",)])
 
-    pts = []
-    vals = [-1.0,1.25,0.5,2.5,4]
-    for x in vals:
-        y = s00*1.0 + s10*x + s11*x*x
-        pts.append(WCPoint(f'EFTrwgt0_{wc_name}_{x}',y))
+    as_hist = h_base.as_hist({"ctG": 0.25, "ctZ": -0.10})
+    assert isinstance(as_hist, modern_hist.Hist)
+    assert list(as_hist.axes.name) == ["process", "observable"]
 
-    fit_1 = WCFit(pts,'f1')
-    fit_2 = WCFit()
-    fit_2.SetTag('f2')
+    grouped = h_base.group("process", {"all": ["signal", "background"]})
+    total_before = h_base.integrate("process").eval({"ctG": 0.2, "ctZ": -0.3})[()].sum()
+    total_after = grouped.integrate("process").eval({"ctG": 0.2, "ctZ": -0.3})[()].sum()
+    assert np.isclose(total_before, total_after)
 
-    fit_2.AddFit(fit_1)
-    fit_2.AddFit(fit_1)
-
-    chk_x = 1.5
-    chk_y = s00*1.0 + s10*chk_x + s11*chk_x*chk_x
-    chk_vals = {wc_name:chk_x, 'ctZ':0.0}
-    chk_pt = WCPoint(f'EFTrwgt0_{wc_name}_{chk_x}',0.0)
-
-    print('Running unit tests for HistEFT class')
-    all_chks = 0
-    units = 0
-
-    h_base = HistEFT("h_base", wc_names[1::], hist.Cat("sample", "sample"), hist.Bin("n",  "", 1, 0, 1))
-
-    val=ak.Array([0.5])
-    eftval = ak.Array([0.0002579])
-    sconst = sconst + sconst
-    h_base.fill(n=val, sample='test', weight=np.ones_like(val), eft_coeff=[ak.Array(sconst)])
-
-    expected = 1.0
-    result = list(h_base.values().values())[0][0]
-
-    unit_chk = (abs(result - expected) < tolerance)
-    all_chks += unit_chk
-    units += 1
-
-    chk_str = 'Passed' if unit_chk else 'Failed'
-    print('--- UNIT 1 ---')
-    print('expected     : ', expected)
-    print('GetBinContent: ', result)
-    print('test: ', chk_str)
-    print('--------------\n')
-
-    ###########################
-
-    h_base.set_wilson_coefficients(**chk_vals)
-
-    expected = fit_1.EvalPoint(chk_pt)
-    result = list(h_base.values().values())[0][0]
-
-    unit_chk = abs(result - expected) < tolerance
-    all_chks += unit_chk
-    units += 1
-
-    chk_str = 'Passed' if unit_chk else 'Failed'
-    print('--- UNIT 2 ---')
-    print('chk_x        : ', chk_pt.GetStrength(wc_name))
-    print('expected     : ', expected)
-    print('GetBinContent: ', result)
-    print('test: ', chk_str)
-    print('--------------\n')
-
-    ###########################
-
-    chk_x = 0.75
-    chk_y = s00*1.0 + s10*chk_x + s11*chk_x*chk_x
-    chk_vals = {wc_name:chk_x, 'ctZ':0.0}
-    chk_pt.SetStrength(wc_name,chk_x)
-    h_base.set_wilson_coefficients(**chk_vals)
-
-    expected = fit_1.EvalPoint(chk_pt)
-    result = list(h_base.values().values())[0][0]
-
-    unit_chk = abs(result - expected) < tolerance
-    all_chks += unit_chk
-    units += 1
-
-    chk_str = 'Passed' if unit_chk else 'Failed'
-    print('--- UNIT 3 ---')
-    print('chk_x        : ', chk_pt.GetStrength(wc_name))
-    print('expected     : ', expected)
-    print('GetBinContent: ', result)
-    print('test: ', chk_str)
-    print('--------------\n')
-
-    ###########################
-
-    h_base.fill(n=val, sample='test', weight=np.ones_like(val), eft_coeff=[ak.Array(sconst)*2])
-    h_base.set_wilson_coefficients(**chk_vals)
-
-    # First make sure the original WCFits weren't messed with
-    expected = chk_y + 2*chk_y
-    result = fit_1.EvalPoint(chk_pt) + fit_2.EvalPoint(chk_pt)
-    diff = abs(expected - result)
-    tolerance = 1e-10
-
-    unit_chk = (diff < tolerance)
-    all_chks += unit_chk
-    units += 1
-
-    chk_str = 'Passed' if unit_chk else 'Failed'
-    print('--- UNIT 4 ---')
-    print('chk_x        : ', chk_pt.GetStrength(wc_name))
-    print('expected     : ', expected)
-    print('fit_1 + fit_2: ', result)
-    print('difference   : ', diff)
-    print('tolerance    : ', tolerance)
-    print('test: ', chk_str)
-    print('--------------\n')
-
-    # Now check that the TH1EFT actually worked
-    expected = fit_1.EvalPoint(chk_pt) + fit_2.EvalPoint(chk_pt)
-    result = list(h_base.values().values())[0][0]
-
-    unit_chk = abs(result - expected) < tolerance
-    all_chks += unit_chk
-    units += 1
-
-    chk_str = 'Passed' if unit_chk else 'Failed'
-    print('--- UNIT 5 ---')
-    print('chk_x        : ', chk_pt.GetStrength(wc_name))
-    print('expected     : ', expected)
-    print('GetBinContent: ', result)
-    print('test: ', chk_str)
-    print('--------------\n')
-
-    ###########################
-
-    h_new = h_base.copy()
-
-    chk_x = 0.975
-    chk_y = s00*1.0 + s10*chk_x + s11*chk_x*chk_x
-    chk_vals = {wc_name:chk_x, 'ctZ':0.0}
-    chk_pt.SetStrength(wc_name,chk_x)
-
-    h_new.set_wilson_coefficients(**chk_vals)
-
-    # First check that h_new has the right value
-    expected = fit_1.EvalPoint(chk_pt) + fit_2.EvalPoint(chk_pt)
-    result = list(h_new.values().values())[0][0]
-
-    unit_chk = abs(result - expected) < tolerance
-    all_chks += unit_chk
-    units += 1
-
-    chk_str = 'Passed' if unit_chk else 'Failed'
-    print('--- UNIT 6 ---')
-    print('chk_x        : ', chk_pt.GetStrength(wc_name))
-    print('expected     : ', expected)
-    print('GetBinContent: ', result)
-    print('test: ', chk_str)
-    print('--------------\n')
-
-    chk_x = 0.75    # Needs to be w/e chk_x was before UNIT 6
-    chk_y = s00*1.0 + s10*chk_x + s11*chk_x*chk_x
-    chk_vals = {wc_name:chk_x, 'ctZ':0.0}
-    chk_pt.SetStrength(wc_name,chk_x)
-
-    # Next check that the h_base was unaffected when we scaled h_new
-    expected = fit_1.EvalPoint(chk_pt) + fit_2.EvalPoint(chk_pt)
-    result = list(h_base.values().values())[0][0]
-
-    unit_chk = abs(result - expected) < tolerance
-    all_chks += unit_chk
-    units += 1
-
-    chk_str = 'Passed' if unit_chk else 'Failed'
-    print('--- UNIT 7 ---')
-    print('chk_x        : ', chk_pt.GetStrength(wc_name))
-    print('expected     : ', expected)
-    print('GetBinContent: ', result)
-    print('test: ', chk_str)
-    print('--------------\n')
-
-    # Check HistEFT.add()
-    expected = fit_1.EvalPoint(chk_pt) + fit_2.EvalPoint(chk_pt) #fits for h_base
-    expected += fit_1.EvalPoint(chk_pt) + fit_2.EvalPoint(chk_pt) #fits for h_new
-    h_base.add(h_new)
-    h_base.set_wilson_coefficients(**chk_vals) #evaluate h_base at chk_pt
-    result = list(h_base.values().values())[0][0]
-
-    unit_chk = abs(result - expected) < tolerance
-    all_chks += unit_chk
-    units += 1
-
-    chk_str = 'Passed' if unit_chk else 'Failed'
-    print('--- UNIT 8 ---')
-    print('chk_x        : ', chk_pt.GetStrength(wc_name))
-    print('expected     : ', expected)
-    print('GetBinContent: ', result)
-    print('test: ', chk_str)
-    print('--------------\n')
-
-    # Check HistEFT.add() reweight
-    chk_x = 0.75    # Needs to be w/e chk_x was before UNIT 6
-    chk_y = s00*1.0 + s10*chk_x + s11*chk_x*chk_x
-    chk_vals = {wc_name:chk_x, 'ctZ':0.0}
-    chk_pt.SetStrength(wc_name,chk_x)
-    expected = fit_1.EvalPoint(chk_pt) + fit_2.EvalPoint(chk_pt)
-    expected += fit_1.EvalPoint(chk_pt) + fit_2.EvalPoint(chk_pt)
-    h_base.set_wilson_coefficients(**chk_vals)
-    result = list(h_base.values().values())[0][0]
-
-    unit_chk = abs(result - expected) < tolerance
-    all_chks += unit_chk
-    units += 1
-
-    chk_str = 'Passed' if unit_chk else 'Failed'
-    print('--- UNIT 9 ---')
-    print('chk_x        : ', chk_pt.GetStrength(wc_name))
-    print('expected     : ', expected)
-    print('GetBinContent: ', result)
-    print('test: ', chk_str)
-    print('--------------\n')
-
-    ###########################
-
-    print(f'Passed Checks: {all_chks}/{units}')
-    assert (all_chks == units)
+    signal = h_base.integrate("process", "signal")
+    coeffs = signal.view(as_dict=True)[()]
+    wc_val = 0.6
+    sm_idx = signal.quadratic_term_index("sm", "sm")
+    lin_idx = signal.quadratic_term_index("sm", "ctG")
+    quad_idx = signal.quadratic_term_index("ctG", "ctG")
+    expected = (
+        coeffs[:, sm_idx].sum()
+        + coeffs[:, lin_idx].sum() * wc_val
+        + coeffs[:, quad_idx].sum() * wc_val * wc_val
+    )
+    observed = signal.eval({"ctG": wc_val, "ctZ": 0.0})[()].sum()
+    assert np.isclose(expected, observed)
