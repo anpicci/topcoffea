@@ -260,10 +260,18 @@ class CorrectedJetsFactory(object):
                 jer_resolution_flat = self.jec_stack.jer.getResolution(**jer_args)
                 jet_energy_resolution = _as_jagged_per_jet(jer_resolution_flat, counts, "JER resolution")
 
-                # Preserve jagged structure for scale-factor evaluators that expect
-                # per-event jet collections and flatten internally.
-                jersf_args = {k: jagged_out[jer_name_map[k]] for k in self.jec_stack.jersf.signature}
-                jersf_flat = self.jec_stack.jersf.getScaleFactor(**jersf_args)
+                jersf_args_flat = {
+                    k: ak.flatten(jagged_out[jer_name_map[k]], axis=None) for k in self.jec_stack.jersf.signature
+                }
+                try:
+                    jersf_flat = self.jec_stack.jersf.getScaleFactor(**jersf_args_flat)
+                except Exception as flat_exc:
+                    # Some implementations expect jagged inputs and flatten internally.
+                    jersf_args_jagged = {k: jagged_out[jer_name_map[k]] for k in self.jec_stack.jersf.signature}
+                    try:
+                        jersf_flat = self.jec_stack.jersf.getScaleFactor(**jersf_args_jagged)
+                    except Exception:
+                        raise flat_exc
                 jet_energy_resolution_scale_factor = _as_jagged_per_jet(jersf_flat, counts, "JER scale factor")
 
             elif self.tool == "clib":
