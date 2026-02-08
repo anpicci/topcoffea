@@ -1,7 +1,7 @@
 from pathlib import Path
 import hashlib
 
-UPSTREAM_DIGEST = "f48088dc786c70552262b198c56c39830b4ac1af30583eee1b559f5804ff9020"
+UPSTREAM_DIGEST = "5c3341596540162abdd0d2ec158426eb16f0ab3d1576b615c4572a71930602f1"
 UPSTREAM_SPEC = Path(__file__).resolve().parent / "data" / "ttbareft_coffea2025.yml"
 
 
