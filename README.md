@@ -7,7 +7,7 @@ cd topcoffea
 pip install -e .
 
 # Confirm the namespace import that downstream projects rely on
-python -c "import topcoffea; topcoffea.modules.HistEFT.HistEFT"
+python -c "import topcoffea; topcoffea.modules.histEFT.HistEFT"
 ```
 
 The shared `coffea2025` Conda environment distributed with `topcoffea` and
@@ -61,11 +61,11 @@ python -c "import topcoffea"
 
 Branches such as `format_update_anpicci_calcoffea` in the `topeft` repository
 require the editable install above so helpers like
-`topcoffea.modules.HistEFT` and `topcoffea.scripts.make_html` resolve via plain
+`topcoffea.modules.histEFT` and `topcoffea.scripts.make_html` resolve via plain
 attribute access. When developing both repositories side-by-side, activate the
 environment used for `topeft`, run `pip install -e ../topcoffea` from the
 `topeft` checkout, and re-run `python -c "import topcoffea"` (optionally adding
-`topcoffea.modules.HistEFT.HistEFT` to the smoke test) before invoking the
+`topcoffea.modules.histEFT.HistEFT` to the smoke test) before invoking the
 analysis scripts. This matches the CI installation check and guarantees that
 `import topcoffea` succeeds anywhere the sibling repository runs.
 

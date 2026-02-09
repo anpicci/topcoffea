@@ -6,7 +6,7 @@ from __future__ import annotations
 def test_modules_are_accessible_via_attribute() -> None:
     import topcoffea
 
-    hist_eft = topcoffea.modules.HistEFT
+    hist_eft = topcoffea.modules.histEFT
     assert hasattr(hist_eft, "HistEFT"), "HistEFT module should expose the factory class"
 
     utils = topcoffea.modules.utils
