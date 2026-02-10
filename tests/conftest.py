@@ -20,9 +20,6 @@ if str(_PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(_PROJECT_ROOT))
 
 from topcoffea._ensure_deps import ensure_runtime_dependencies
-from topcoffea._coffea_hist_shim import ensure_coffea_hist_module
 
 # Install the scientific Python stack if it is missing.
 ensure_runtime_dependencies()
-ensure_coffea_hist_module()
-

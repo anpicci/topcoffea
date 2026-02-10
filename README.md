@@ -93,6 +93,27 @@ pytest -q -m integration -k "taskvine or vine"
 TOPCOFFEA_TASKVINE_TIMEOUT_SECONDS=30 pytest -q -m integration tests/test_taskvine_cli.py::test_minimal_taskvine_cli
 ```
 
+## Histogram plotting
+
+`topcoffea` supports modern `hist` objects only. The legacy Coffea histogram
+namespace is not supported.
+
+```python
+import hist
+import mplhep as hep
+import matplotlib.pyplot as plt
+
+h2 = hist.Hist(
+    hist.axis.Regular(20, -5, 5, name="x"),
+    hist.axis.Regular(20, -5, 5, name="y"),
+)
+h2.fill(x=[-1.0, 0.2, 1.7], y=[0.5, -0.8, 1.1])
+
+hep.hist2dplot(h2, xaxis="x")
+plt.tight_layout()
+plt.show()
+```
+
 
 ## Documentation
 

@@ -82,7 +82,7 @@ class SparseHist(hist.Hist, family=hist):
         else:
             return self[{}]
 
-    # Legacy ``coffea.hist`` provided ``copy(content=False)``; a few callers
+    # Legacy histogram APIs provided ``copy(content=False)``; a few callers
     # still rely on that signature.  Implement the method directly here so that
     # it works for every histogram built on top of ``SparseHist``.
     def copy(self, content: bool = True):
