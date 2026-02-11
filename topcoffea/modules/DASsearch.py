@@ -194,8 +194,8 @@ def main():
     import argparse
     parser = argparse.ArgumentParser(description='Query DAS datasets and print summary information')
     parser.add_argument('--verbose','-v'    , default=0, help = 'Verbosity level')
-    parser.add_argument('--pretend','-p'    , action='store_true'  , help = 'Compatibility flag (no-op)')
-    parser.add_argument('--test','-t'       , action='store_true'  , help = 'Compatibility flag (no-op)')
+    parser.add_argument('--pretend','-p'    , action='store_true'  , help = 'Legacy compatibility flag; currently unused in this CLI execution path')
+    parser.add_argument('--test','-t'       , action='store_true'  , help = 'Legacy compatibility flag; currently unused in this CLI execution path')
     parser.add_argument('--options','-o'    , default=''           , help = "Query mode: events, nfiles, size, or files")
     parser.add_argument('dataset'           , default=''           , nargs='?', help = 'Dataset name or text file listing datasets')
 

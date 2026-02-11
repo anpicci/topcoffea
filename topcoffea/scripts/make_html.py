@@ -141,14 +141,13 @@ def make_html(tar_dir, width=355, height=355):
     os.chdir(home_dir)
 
 def main():
-    web_area = "/afs/crc.nd.edu/user/a/awightma/www/"
     parser = argparse.ArgumentParser(
         description="Create an index.html gallery for PNG files in a directory."
     )
     parser.add_argument(
         "path",
         nargs="?",
-        default=os.path.join(web_area, "eft_stuff/tmp"),
+        default=".",
         help="Directory containing PNG files (default: %(default)s)",
     )
     args = parser.parse_args()
