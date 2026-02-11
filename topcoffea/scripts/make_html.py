@@ -1,5 +1,25 @@
+"""Generate an `index.html` image gallery for a directory of plots.
+
+Purpose:
+Create a browsable HTML page that displays PNG files and links each image to a
+matching PDF (when available).
+
+Inputs/outputs:
+- Input: target directory containing image files.
+- Output: `index.html` written inside the target directory.
+
+Side effects:
+- Reads directory contents and checks for matching PDF files.
+- Writes/overwrites `index.html` in the target directory.
+- Temporarily changes the process working directory during generation.
+
+How to run:
+- `python topcoffea/scripts/make_html.py`
+- `python topcoffea/scripts/make_html.py /path/to/plot_directory`
+"""
+
+import argparse
 import os
-import sys
 
 from topcoffea.modules.HTMLGenerator import *
 # Create an index.html file for a web-directory with .png files
@@ -122,10 +142,18 @@ def make_html(tar_dir, width=355, height=355):
 
 def main():
     web_area = "/afs/crc.nd.edu/user/a/awightma/www/"
-    if len(sys.argv) == 2:
-        fpath = sys.argv[1]
-    else:
-        fpath = os.path.join(web_area,'eft_stuff/tmp')
+    parser = argparse.ArgumentParser(
+        description="Create an index.html gallery for PNG files in a directory."
+    )
+    parser.add_argument(
+        "path",
+        nargs="?",
+        default=os.path.join(web_area, "eft_stuff/tmp"),
+        help="Directory containing PNG files (default: %(default)s)",
+    )
+    args = parser.parse_args()
+
+    fpath = args.path
     if not os.path.exists(fpath):
         print("ERROR: Unknown path {}".format(fpath))
         return

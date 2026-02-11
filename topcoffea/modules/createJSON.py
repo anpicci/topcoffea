@@ -1,3 +1,26 @@
+"""Create sample metadata JSON files for topcoffea analyses.
+
+Purpose:
+Build a metadata JSON from either local ROOT files or a CMS DAS dataset.
+The output contains file lists and normalization metadata used by analysis jobs.
+
+Inputs/outputs:
+- Input path: local directory/file pattern or DAS dataset name.
+- Optional metadata: sample name, xsec key, year, era, tree name, and options.
+- Output: one JSON file (default from `--outname` or `--sampleName`) in the
+  current working directory.
+
+Side effects:
+- Reads `topcoffea/params/xsec.yml` to resolve cross sections.
+- Scans ROOT files and accumulates event/weight counters.
+- May query DAS/dasgoclient over the network when `--DAS` is enabled.
+- Writes a JSON file to disk.
+
+How to run:
+- `python topcoffea/modules/createJSON.py /path/to/files --sampleName SAMPLE --xsecName SAMPLE`
+- `python topcoffea/modules/createJSON.py /PrimaryDataset/.../NANOAOD --DAS --sampleName SAMPLE --xsecName SAMPLE`
+"""
+
 import argparse
 import json
 import yaml
@@ -10,25 +33,27 @@ from topcoffea.modules.root_utils import get_info, get_list_of_wc_names
 
 def main():
 
-    parser = argparse.ArgumentParser(description='Create json file with list of samples and metadata')
+    parser = argparse.ArgumentParser(
+        description="Create a metadata JSON with files, event counts, and normalization fields."
+    )
     parser.add_argument('path'              , default=''           , help = 'Path to directory or DAS dataset')
     parser.add_argument('--prefix','-p'     , default=''           , help = 'Prefix to add to the path (e.g. redirector)')
     parser.add_argument('--sampleName','-s' , default=''           , help = 'Sample name, used to find files and/or output name')
-    parser.add_argument('--xsec','-x'       , default=1            , help = 'Cross section (number or file to read)')
-    parser.add_argument('--xsecName'        ,                        help = 'Name in cross section .cfg (only if different from sampleName)')
+    parser.add_argument('--xsec','-x'       , default=1            , help = 'Cross section value (overridden by --xsecName lookup when provided)')
+    parser.add_argument('--xsecName'        ,                        help = 'Key name in xsec.yml used to resolve the cross section')
     parser.add_argument('--year','-y'       , default=-1           , help = 'Year')
     parser.add_argument('--treename'        , default='Events'     , help = 'Name of the tree')
-    parser.add_argument('--histAxisName'    , default=''           , help = 'Name for the samples axis of the coffea hist')
-    parser.add_argument('--era'             , default=None         , help = 'Era Name') #Needed for Era dependency in Run3
+    parser.add_argument('--histAxisName'    , default=''           , help = 'Sample-axis label stored in the output JSON')
+    parser.add_argument('--era'             , default=None         , help = 'Era name') #Needed for Era dependency in Run3
 
-    parser.add_argument('--DAS'             , action='store_true'  , help = 'Search files from DAS dataset')
-    parser.add_argument('--nFiles'          , default=None         , help = 'Number of max files (for the moment, only applies for DAS)')
+    parser.add_argument('--DAS'             , action='store_true'  , help = 'Resolve input files from DAS instead of local storage')
+    parser.add_argument('--nFiles'          , default=None         , help = 'Maximum number of DAS files to query (DAS mode only)')
 
-    parser.add_argument('--outname','-o'    , default=''           , help = 'Out name of the json file')
+    parser.add_argument('--outname','-o'    , default=''           , help = 'Output JSON file name')
     parser.add_argument('--options'         , default=''           , help = 'Sample-dependent options to pass to your analysis')
-    parser.add_argument('--verbose','-v'    , action='store_true'  , help = 'Activate the verbosing')
+    parser.add_argument('--verbose','-v'    , action='store_true'  , help = 'Enable verbose logging')
 
-    parser.add_argument('--includeLheWgts'  , action='store_true' , help = 'Include the set of LHE weights')
+    parser.add_argument('--includeLheWgts'  , action='store_true' , help = 'Include summed LHE weights in the output JSON')
 
 
     args, unknown = parser.parse_known_args()
