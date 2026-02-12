@@ -1,14 +1,24 @@
-# Usage:
-# python CheckDatasets.py datasets/mc2018.txt
-# python CheckDatasets.py /TTZToLLNuNu_M-10_TuneCP5_13TeV-amcatnlo-pythia8/RunIIAutumn18NanoAODv6-Nano25Oct2019_102X_upgrade2018_realistic_v20_ext1-v1/NANOAODSIM
-# python CheckDatasets.py /TTZToLLNuNu_M-10_TuneCP5_13TeV-amcatnlo-pythia8/RunIIAutumn18NanoAODv6-Nano25Oct2019_102X_upgrade2018_realistic_v20_ext1-v1/NANOAODSIM -o files
-# python CheckDatasets.py /TTZToLLNuNu_M-10_TuneCP5_13TeV-amcatnlo-pythia8/RunIIAutumn18NanoAODv6-Nano25Oct2019_102X_upgrade2018_realistic_v20_ext1-v1/NANOAODSIM -o nevents
-#
-# To get a dict with all the needed info to run:
-#  Get full dataset, all files: GetDatasetFromDAS(dataset, withRedirector='root://cms-xrd-global.cern.ch/')
-#  Get full dataset, n files  : GetDatasetFromDAS(dataset, nFiles, withRedirector='root://cms-xrd-global.cern.ch/')
-#  Get info for just n files  : GetDatasetFromDAS(dataset, nFiles, options='file', withRedirector='root://cms-xrd-global.cern.ch/')
-#
+"""Query CMS DAS for dataset metadata and file lists.
+
+Purpose:
+Provide helpers and a small CLI for DAS queries used by topcoffea workflows.
+It can resolve dataset-level totals (events, files, storage size) or list files.
+
+Inputs/outputs:
+- Input: a DAS dataset name or a text file containing multiple dataset names.
+- CLI output: printed summaries or file paths to stdout.
+- Python API output: dictionaries with counts and file lists.
+
+Side effects:
+- Executes `dasgoclient` subprocess commands.
+- May access CVMFS and perform network DAS queries.
+- Prints query results and diagnostics to stdout/stderr.
+
+How to run:
+- `python topcoffea/modules/DASsearch.py /PrimaryDataset/.../NANOAODSIM`
+- `python topcoffea/modules/DASsearch.py /PrimaryDataset/.../NANOAODSIM --options files`
+- `python topcoffea/modules/DASsearch.py datasets.txt --options nevents`
+"""
 
 import os
 import sys
@@ -182,12 +192,12 @@ def GetDatasetFromDAS(dataset, nFiles=None, options='', withRedirector='', inclu
 def main():
     ''' Executing from terminal, obtain info for some datasets '''
     import argparse
-    parser = argparse.ArgumentParser(description='Look for datasets using dasgoclient')
-    parser.add_argument('--verbose','-v'    , default=0, help = 'Activate the verbosing')
-    parser.add_argument('--pretend','-p'    , action='store_true'  , help = 'Do pretend')
-    parser.add_argument('--test','-t'       , action='store_true'  , help = 'Do test')
-    parser.add_argument('--options','-o'    , default=''           , help = 'Options to pass to your producer')
-    parser.add_argument('dataset'           , default=''           , nargs='?', help = 'txt file with datasets or dataset name')
+    parser = argparse.ArgumentParser(description='Query DAS datasets and print summary information')
+    parser.add_argument('--verbose','-v'    , default=0, help = 'Verbosity level')
+    parser.add_argument('--pretend','-p'    , action='store_true'  , help = 'Legacy compatibility flag; currently unused in this CLI execution path')
+    parser.add_argument('--test','-t'       , action='store_true'  , help = 'Legacy compatibility flag; currently unused in this CLI execution path')
+    parser.add_argument('--options','-o'    , default=''           , help = "Query mode: events, nfiles, size, or files")
+    parser.add_argument('dataset'           , default=''           , nargs='?', help = 'Dataset name or text file listing datasets')
 
     args = parser.parse_args()
 

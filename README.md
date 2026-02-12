@@ -11,12 +11,14 @@ python -c "import topcoffea; topcoffea.modules.histEFT.HistEFT"
 ```
 
 The shared `coffea2025` Conda environment distributed with `topcoffea` and
-`topeft` now matches the TaskVine-ready spec used in the `ttbarEFT`
-`coffea2025` branch (`coffea=2025.7.3`, `awkward=2.8.7`, `ndcctools`,
-`conda-pack`, etc.) so local installs mirror the remote cache. CI hashes
-`environment.yml` against the stored upstream baseline to catch drift. Provision
-or refresh the environment with the commands below before running processors so
-downstream projects see the same toolchain that CI exercises. Jet corrections in
+`topeft` tracks a TaskVine-ready dependency set (`coffea=2025.7.3`,
+`awkward=2.8.7`, `ndcctools`, `conda-pack`, etc.) so local installs mirror the
+remote cache. Environment policy is validated in-repo via tests with
+integration-focused checks: the tests enforce integration-intent pins, alignment
+between `environment.yml` and `pyproject.toml`, and a limited informational
+subset comparison against a `ttbarEFT` reference spec. Provision or refresh the
+environment with the commands below before running processors so downstream
+projects see the same toolchain that CI exercises. Jet corrections in
 `CorrectedJetsFactory` now follow coffea's cache-free upstream factory and avoid
 `ak.stack`/virtual arrays, which requires `awkward>=2.8` and coffea `>=0.7` to
 stay compatible with the eager smearing machinery:
@@ -31,6 +33,9 @@ python -c "import topcoffea"
 Rebuild the cached worker tarball with `python -m
 topcoffea.modules.remote_environment` after pulling these changes so downstream
 workflows pick up the refreshed pins.
+
+Source of truth: when environment-policy wording in docs and implementation seem
+to differ, follow `tests/test_environment_spec.py`.
 
 Supported Coffea range: the 2025 release series, tested against `coffea==2025.7.3`.
 
