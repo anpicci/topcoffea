@@ -122,6 +122,8 @@ plt.show()
 
 ## Documentation
 
+* [Documentation index](docs/index.md) – landing page for all `topcoffea`
+  documentation.
 * [Quickstart](docs/quickstart.md) – installation and executor conventions for
   the `topcoffea` helpers shared across analyses.
 * [Configuration guide](docs/configuration.md) – details on `RunConfig`, YAML
@@ -131,6 +133,7 @@ plt.show()
   pickle outputs.
 * [`topeft` integration](docs/topeft_integration.md) – branch coordination tips
   for keeping shared helpers aligned.
+* [Release notes](docs/release_notes.md) – canonical change log.
 
 End-to-end run and plotting workflows now live in the
 [`topeft`](https://github.com/TopEFT/topeft) documentation; follow those guides

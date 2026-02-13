@@ -3,7 +3,8 @@
 This guide focuses on the `topcoffea` pieces that downstream analyses reuse.
 For end-to-end workflows (running processors, building datacards, and plotting)
 follow the [`topeft` documentation](https://github.com/TopEFT/topeft) and use the
-sections below to look up the supporting APIs referenced there.
+sections below to look up the supporting APIs referenced there. For a complete
+`topcoffea` docs map, see [index.md](index.md).
 
 ## Install `topcoffea`
 
