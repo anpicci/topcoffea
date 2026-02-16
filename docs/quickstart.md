@@ -45,8 +45,9 @@ validation.
 
 ## Using with `topeft`
 
-When developing both repositories together, pair `ch_update_calcoffea` here with
-`format_update_anpicci_calcoffea` in `topeft` so shared helpers stay in sync.
-Refer to the `topeft` quickstart and workflow guides for authoritative run and
-plotting instructions; use this document to keep the underlying `topcoffea`
-installation and configuration consistent with those workflows.
+When developing both repositories together, use coordinated refs (release tags
+or matched feature branches) across repos. For current compatibility guidance,
+see [`topeft_integration.md`](topeft_integration.md). Refer to the `topeft`
+quickstart and workflow guides for authoritative run and plotting instructions;
+use this document to keep the underlying `topcoffea` installation and
+configuration consistent with those workflows.

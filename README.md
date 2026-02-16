@@ -44,10 +44,9 @@ Supported Coffea range: the 2025 release series, tested against `coffea==2025.7.
 Projects such as [`topeft`](https://github.com/TopEFT/topeft) expect that the
 plain namespace import (`import topcoffea`) succeeds without extra
 `PYTHONPATH` tweaks. When testing a feature branch together with `topeft`, make
-sure the branch is installed in the environment that runs the analysis. See
-[the `topeft` integration guide](docs/topeft_integration.md) for branch pairing
-details when working on `ch_update_calcoffea` in `topcoffea` alongside
-`format_update_anpicci_calcoffea` in `topeft`.
+sure the ref is installed in the environment that runs the analysis. For
+current compatibility guidance, see
+[the `topeft` integration guide](docs/topeft_integration.md).
 
 ```bash
 # Option 1: install directly from GitHub
@@ -64,8 +63,8 @@ python -m pip install -e .
 python -c "import topcoffea"
 ```
 
-Branches such as `format_update_anpicci_calcoffea` in the `topeft` repository
-require the editable install above so helpers like
+Coordinated `topeft` development refs require the editable install above so
+helpers like
 `topcoffea.modules.histEFT` and `topcoffea.scripts.make_html` resolve via plain
 attribute access. When developing both repositories side-by-side, activate the
 environment used for `topeft`, run `pip install -e ../topcoffea` from the
@@ -142,12 +141,12 @@ and configuration details.
 
 ## Using with `topeft`
 
-When testing changes against `topeft`, pair the `ch_update_calcoffea` branch
-here with `format_update_anpicci_calcoffea` in the `topeft` repository so the
-shared helpers and CLI flags stay in sync. The authoritative run and plotting
-instructions live in the `topeft` quickstart and workflow guides; refer to those
-documents for end-to-end steps and use the `topcoffea` references above to look
-up configuration and tuple-schema details.
+Use coordinated refs (release tags or matched feature branches) across repos.
+For current compatibility guidance, see
+[`docs/topeft_integration.md`](docs/topeft_integration.md). The authoritative
+run and plotting instructions live in the `topeft` quickstart and workflow
+guides; refer to those documents for end-to-end steps and use the `topcoffea`
+references above to look up configuration and tuple-schema details.
 
 ## Remote environment cache
 
