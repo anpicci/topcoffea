@@ -1,12 +1,29 @@
+# Tau scale factors in JSON format (TauSF)
 
-# JSONs containing corrections and systematics
+## Usage guidance
 
-The Tau SFs are obtained from: https://github.com/cms-tau-pog/TauIDSFs
+For general correctionlib usage patterns and how `topcoffea` consumes payloads,
+see
+[`docs/configuration.md`](../../../docs/configuration.md#payloads-and-corrections-overview).
 
-In their default format, they are in a root file which requires CMSSW to extract. They were dumped into json files, uploaded here, which is a format more easily handled in coffea. The json file contains the same granularity as the original format, and no information is lost. The SFs have been confirmed to be the same.
+## Provenance
 
+Primary source:
+https://github.com/cms-tau-pog/TauIDSFs
 
-Apart from the files starting with `TauFakeSF_*`, the documentation and the source of the files contained here is listed TAU POG GH repo: https://github.com/cms-tau-pog/TauIDSFs.git. When necessary, the central files were translated in the usual JSON structure used for TOP-22-006, since the TAU POG json structure is not compatible with the structure used for TOP-22-006 
+These payloads were converted from the original ROOT-based distribution into
+JSON for coffea-friendly use while preserving binning granularity and values.
 
-The SFs and systematic uncertainties contained in `TauFakeSF_*` represent the corrections to the estimate of the jet faking hadronic taus at a fixed WP of the `DeepTau` discriminator.
-The procedure was presented to TAU POG: https://indico.cern.ch/event/1326438/#preview:4727537
+For files not prefixed with `TauFakeSF_*`, source documentation follows the Tau
+POG repository above.  Where needed for TOP-22-006 workflows, payloads were
+translated to the JSON structure used in this analysis setup.
+
+## What's in here
+
+- `TauSF*`, `TauTES*`, `TauFES*`: scale-factor and energy-scale payload
+  families by year and era.
+- `TauFake*` and `TauFakeSF_*`: fake-rate correction payloads for jets
+  misidentified as hadronic taus at fixed DeepTau working points.
+
+The `TauFakeSF_*` payloads correspond to the procedure presented to Tau POG:
+https://indico.cern.ch/event/1326438/#preview:4727537
