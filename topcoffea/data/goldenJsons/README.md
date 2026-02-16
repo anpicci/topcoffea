@@ -2,8 +2,10 @@
 
 ## Usage guidance
 
-For where these payloads fit in the broader correction setup, see
+For how these payloads fit into the broader corrections setup, see
 [`docs/configuration.md`](../../../docs/configuration.md#payloads-and-corrections-overview).
+For the full documentation map, see
+[`docs/index.md`](../../../docs/index.md).
 
 ## Provenance
 
@@ -40,4 +42,3 @@ Run 3 JSON copies are stored in this directory as `.txt` files.
 
 The integrated luminosity values consumed in `topcoffea/json/lumi.json` are
 tracked from the TWiki sources above.
-
