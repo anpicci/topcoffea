@@ -5,6 +5,7 @@
 For general correctionlib usage patterns and how `topcoffea` consumes payloads,
 see
 [`docs/configuration.md`](../../../../docs/configuration.md#payloads-and-corrections-overview).
+For the full documentation map, see [docs/index.md](../../../../docs/index.md).
 
 ## Provenance
 

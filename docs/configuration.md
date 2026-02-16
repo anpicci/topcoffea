@@ -10,7 +10,7 @@ This guide explains how analysis profiles become executable runs across the
   the executors and physics corrections.
 
 Throughout, the examples reference
-[`analysis/topeft_run2/run_analysis.py`](../../topeft/analysis/topeft_run2/run_analysis.py)
+`analysis/topeft_run2/run_analysis.py` in the `topeft` repository
 (the canonical run script in `topeft`) together with
 `topcoffea`'s executor and correction helpers.
 
@@ -22,16 +22,19 @@ profile passed via `--options`.  Those settings are consumed by the
 `ExecutorCLIConfig` definition in `topcoffea.modules.executor_cli`—so that
 downstream code works with a single, immutable object.  The dataclass stores the
 executor backend, worker counts, chunking information and optional TaskVine
-metadata such as port ranges and environment tarballs.【F:topcoffea/modules/executor_cli.py†L13-L91】
+metadata such as port ranges and environment tarballs. See
+`topcoffea/modules/executor_cli.py`.
 
 To build the dataclass, the helper `executor_config_from_values` accepts the raw
 values from the CLI and the YAML profile and normalises them.  It translates
 aliases (for example, treating `work_queue` as a request for the TaskVine
 executor), converts string inputs to integers, parses TaskVine port ranges and
-applies the environment caching policy.【F:topcoffea/modules/executor_cli.py†L93-L189】
+applies the environment caching policy. See
+`topcoffea/modules/executor_cli.py`.
 The resulting `RunConfig`/`ExecutorCLIConfig` instance offers convenience
 properties such as `requires_port`, which is used by callers to decide whether a
-TaskVine manager needs to reserve a port range.【F:topcoffea/modules/executor_cli.py†L70-L88】
+TaskVine manager needs to reserve a port range. See
+`topcoffea/modules/executor_cli.py`.
 
 ## YAML profile resolution
 
@@ -42,14 +45,16 @@ results.  Each CLI field has a corresponding `pop` call so that the YAML profile
 may define any subset of recognised options.  Values that are not provided fall
 back to the CLI defaults.  This overlay happens before any validation of the
 executor choice or the histogram selection so that subsequent logic can treat
-the merged configuration as authoritative.【F:../topeft/analysis/topeft_run2/run_analysis.py†L215-L261】
+the merged configuration as authoritative. See
+`analysis/topeft_run2/run_analysis.py` in the `topeft` repository.
 
 The merged values (including paths, executor choice and chunking settings) are
 then checked for consistency—verifying the executor exists, that TaskVine port
 ranges are well formed, and that systematic switches are used coherently—before
 being passed to the coffea processor layer.  These checks guarantee that the
 `RunConfig` handed to the executors represents a self-consistent job
-description.【F:../topeft/analysis/topeft_run2/run_analysis.py†L262-L324】
+description. See `analysis/topeft_run2/run_analysis.py` in the `topeft`
+repository.
 
 ## Dataclasses in action inside `topcoffea`
 
@@ -57,21 +62,21 @@ The same dataclass approach is used beyond the executor helpers.  For example,
 `topcoffea.modules.JECStack` wraps the various jet-energy correction (JEC) tools
 in a single dataclass so that downstream processors can request either the
 legacy coffea jetmet stack or the newer correction library workflow without
-changing their call sites.【F:topcoffea/modules/JECStack.py†L1-L86】
+changing their call sites. See `topcoffea/modules/JECStack.py`.
 
 When `use_clib` is true the `JECStack` dataclass loads a `correctionlib`
 `CorrectionSet` and exposes the requested corrections as a dictionary keyed by
 name; otherwise it instantiates the coffea JEC/JER classes directly.  The
 `__post_init__` hook dispatches to the appropriate initialiser based on the flag
 and raises informative errors when required inputs (such as the JSON payload for
-correctionlib) are missing.【F:topcoffea/modules/JECStack.py†L18-L61】
+correctionlib) are missing. See `topcoffea/modules/JECStack.py`.
 
 The `assemble_corrections` helper groups correction objects into JEC, JER, JER
 scale-factor and uncertainty buckets, mirroring the attribute layout expected by
 coffea 2025.7's jet tools.  This makes the dataclass agnostic to whether the
 corrections arrived from a `FactorizedJetCorrector` chain or from the
 correctionlib JSON bundle while keeping the runtime API stable for processors
-that consume the object.【F:topcoffea/modules/JECStack.py†L63-L110】
+that consume the object. See `topcoffea/modules/JECStack.py`.
 
 Factories that consume the stack use eager Awkward 2.x arrays for their
 correction inputs: `CorrectedJetsFactory` now mirrors coffea's upstream,
@@ -85,17 +90,21 @@ no lazy caches are required. `CorrectedMETFactory` still exposes an optional
 `lazy_cache` to let callers provide storage for `awkward.virtual` MET variants
 (the factory will pass the cache through when building the corrected fields).
 This mirrors coffea ≥0.7 expectations and avoids the awkward virtual plumbing
-that triggered broadcast issues with newer Awkward releases.【F:topcoffea/modules/CorrectedJetsFactory.py†L1-L392】【F:topcoffea/modules/CorrectedMETFactory.py†L35-L97】
+that triggered broadcast issues with newer Awkward releases. See
+`topcoffea/modules/CorrectedJetsFactory.py` and
+`topcoffea/modules/CorrectedMETFactory.py`.
 
 ## Coffea 2025.7 considerations
 
 Both the executor config and JEC helpers were updated for the Coffea 2025.7
 series.  On the execution side TaskVine is treated as the preferred backend, and
 its environment-handling logic ensures cached environments include editable
-`topcoffea`/`topeft` installs before the workers start.【F:topcoffea/modules/executor_cli.py†L113-L186】
+`topcoffea`/`topeft` installs before the workers start. See
+`topcoffea/modules/executor_cli.py`.
 For jet corrections, the correctionlib pathway lets analyses adopt the
 `CorrectionSet` JSONs shipped with Coffea 2025.7 while still exposing the
-structure expected by existing processor code.【F:topcoffea/modules/JECStack.py†L18-L86】
+structure expected by existing processor code. See
+`topcoffea/modules/JECStack.py`.
 
 Together these dataclasses provide a bridge between declarative run profiles and
 runtime behaviour: CLI options and YAML overlays become a frozen `RunConfig`,
