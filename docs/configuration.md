@@ -135,16 +135,29 @@ To inspect available corrections and expected inputs:
 list(cset.keys())
 ```
 
+Examples here use repo-relative paths for readability.  In production analysis
+code, do not assume the current working directory when resolving payload files.
+Prefer stable resolution via package resources (for example
+`importlib.resources`) or by constructing paths from a known repo root/config.
+
 ### Pointer map
 
-- POG umbrella and campaign folders: `../topcoffea/data/POG/README.md`
-- Jet/MET (JEC/JER/JMAR/MET phi): `../topcoffea/data/POG/JME/README.md`
-- Muon payload conventions: `../topcoffea/data/POG/MUO/README.md`
-- Tau POG payload conventions: `../topcoffea/data/POG/TAU/README.md`
-- TauSF JSON payload set: `../topcoffea/data/TauSF/README.md`
-- Certified luminosity files: `../topcoffea/data/goldenJsons/README.md`
-- Photon SF inputs: `../topcoffea/data/photonSF/README.md`
-- Imported legacy payloads: `../topcoffea/data/fromTTH/README.md`
+- POG umbrella and campaign folders:
+  [`topcoffea/data/POG/README.md`](../topcoffea/data/POG/README.md)
+- Jet/MET (JEC/JER/JMAR/MET phi):
+  [`topcoffea/data/POG/JME/README.md`](../topcoffea/data/POG/JME/README.md)
+- Muon payload conventions:
+  [`topcoffea/data/POG/MUO/README.md`](../topcoffea/data/POG/MUO/README.md)
+- Tau POG payload conventions:
+  [`topcoffea/data/POG/TAU/README.md`](../topcoffea/data/POG/TAU/README.md)
+- TauSF JSON payload set:
+  [`topcoffea/data/TauSF/README.md`](../topcoffea/data/TauSF/README.md)
+- Certified luminosity files:
+  [`topcoffea/data/goldenJsons/README.md`](../topcoffea/data/goldenJsons/README.md)
+- Photon SF inputs:
+  [`topcoffea/data/photonSF/README.md`](../topcoffea/data/photonSF/README.md)
+- Imported legacy payloads:
+  [`topcoffea/data/fromTTH/README.md`](../topcoffea/data/fromTTH/README.md)
 
 ### Docs vs payload READMEs
 
