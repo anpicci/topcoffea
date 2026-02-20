@@ -17,8 +17,14 @@ def test_vendored_import_raises_runtime_error(tmp_path):
 
     vendored_module = importlib.util.module_from_spec(spec)
 
-    with pytest.raises(RuntimeError, match="vendored copy inside a topeft checkout"):
+    with pytest.raises(RuntimeError) as excinfo:
         spec.loader.exec_module(vendored_module)
+
+    message = str(excinfo.value)
+    assert "vendored copy inside a topeft checkout" in message
+    assert "coordinated ref" in message
+    assert "docs/topeft_integration.md" in message
+    assert "ch_update_calcoffea" not in message
 
 
 def test_non_vendored_topeft_parent_allows_import(tmp_path):
