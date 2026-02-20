@@ -61,6 +61,13 @@ class JECStack:
         # Combine requested corrections
         requested_corrections = self.jec_names_clib + self.jer_names_clib + self.jec_uncsources_clib
         available_corrections = list(self.cset.keys())
+        print("\n\n\n\n\n\n\n\n")
+        print("jec_names_clib:", self.jec_names_clib)
+        print("jer_names_clib:", self.jer_names_clib)
+        print("jec_uncsources_clib:", self.jec_uncsources_clib)
+        print("Requested corrections for clib:", requested_corrections)
+        print("Available corrections in the CorrectionSet:", available_corrections)
+        print("\n\n\n\n\n\n\n\n")
         missing_corrections = [name for name in requested_corrections if name not in available_corrections]
 
         if missing_corrections:
