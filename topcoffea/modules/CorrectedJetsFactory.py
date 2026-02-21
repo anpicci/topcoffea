@@ -95,32 +95,40 @@ def rawvar_jec(jecval, rawvar, lazy_cache):
         cache=lazy_cache,
     )
 
-def get_corr_inputs(jets, corr_obj, name_map, cache=None, corrections=None):
+def get_corr_inputs(jets, corr_obj, name_map, run, cache=None, corrections=None):
     """
     Helper function for getting values of input variables
     given a dictionary and a correction object.
     """
 
-    if corrections is None:
-        input_values = [awkward.flatten(jets[name_map[inp.name]]) for inp in corr_obj.inputs if (inp.name != "systematic")]
-    else:
-        ## This is needed to propagate the previous level of corrections, before applying the next one
-        input_values = []
-        for inp in corr_obj.inputs:
-            if inp.name == "systematic":
-                continue
-            elif inp.name == "JetPt":
-                rawvar = awkward.flatten(jets[name_map[inp.name]])
-                init_input_value = partial(rawvar_jec, rawvar=rawvar, lazy_cache=cache)
-                input_value = init_input_value(jecval=corrections)
-            else:
-                input_value = awkward.flatten(jets[name_map[inp.name]])
-            input_values.append(input_value)
+    input_values = []
+
+    # Precompute the flattened "run per jet" once (only if needed)
+    run_flat = None
+    if any(inp.name == "run" for inp in corr_obj.inputs):
+        run_flat = awkward.flatten(
+            awkward.ones_like(jets[name_map["JetPt"]], dtype=numpy.int32) * run
+        )
+
+    for inp in corr_obj.inputs:
+        if inp.name == "systematic":
+            continue
+        elif inp.name == "run":
+            input_value = run_flat
+        elif inp.name == "JetPt" and corrections is not None:
+            rawvar = awkward.flatten(jets[name_map[inp.name]])
+            init_input_value = partial(rawvar_jec, rawvar=rawvar, lazy_cache=cache)
+            input_value = init_input_value(jecval=corrections)
+        else:
+            input_value = awkward.flatten(jets[name_map[inp.name]])
+
+        input_values.append(input_value)
+
     return input_values
 
 
 class CorrectedJetsFactory(object):
-    def __init__(self, name_map, jec_stack):
+    def __init__(self, name_map, jec_stack, run):
         if not isinstance(jec_stack, JECStack):
             raise TypeError("jec_stack must be an instance of JECStack")
 
@@ -145,6 +153,7 @@ class CorrectedJetsFactory(object):
 
         self.jec_stack = jec_stack
         self.name_map = name_map
+        self.run = run
 
         if self.jec_stack.use_clib:
             # For clib scenario, load corrections from json_path
@@ -239,7 +248,7 @@ class CorrectedJetsFactory(object):
                     raise ValueError(f"Correction {lvl} not found in self.corrections")
 
                 ## This automatically apply the previous levels of correction, when needed
-                inputs = get_corr_inputs(jets=jets, corr_obj=sf, name_map=jec_name_map, cache=lazy_cache, corrections=cumCorr)
+                inputs = get_corr_inputs(jets=jets, corr_obj=sf, name_map=jec_name_map, run=self.run, cache=lazy_cache, corrections=cumCorr)
                 correction = sf.evaluate(*inputs).astype(dtype=numpy.float32)
                 corrections_list.append(correction)
                 if total_correction is None:
