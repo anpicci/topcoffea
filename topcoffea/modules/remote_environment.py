@@ -44,6 +44,7 @@ default_modules = {
             "dill",
             "xrootd",
             "setuptools==70.3.0",
+            "pyyaml"
         ],
     },
     "pip": [f"coffea=={coffea_version}", "topcoffea"],
