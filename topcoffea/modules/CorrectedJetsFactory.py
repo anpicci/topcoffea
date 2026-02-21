@@ -342,7 +342,7 @@ class CorrectedJetsFactory(object):
                     outtag = "jet_energy_resolution"
                     jer_entry = jer_entry.replace("SF", "ScaleFactor")
                     sf = self.corrections[jer_entry]
-                    inputs = get_corr_inputs(jets=jerjets, corr_obj=sf, name_map=jer_name_map)
+                    inputs = get_corr_inputs(jets=jerjets, corr_obj=sf, name_map=jer_name_map, run=self.run)
                     if "ScaleFactor" in jer_entry:
                         outtag += "_scale_factor"
                         correction = awkward.Array([
@@ -537,7 +537,7 @@ class CorrectedJetsFactory(object):
                     if sf is None:
                         raise ValueError(f"Correction {junc_name} not found in self.corrections")
 
-                    inputs = get_corr_inputs(jets=juncjets, corr_obj=sf, name_map=junc_name_map)
+                    inputs = get_corr_inputs(jets=juncjets, corr_obj=sf, name_map=junc_name_map, run=self.run)
                     unc = awkward.values_astype(sf.evaluate(*inputs), numpy.float32)
                     central = awkward.ones_like(out_dict[self.name_map["JetPt"]])
                     unc_up = central + unc
