@@ -20,6 +20,7 @@ def update_json(fname,dry_run=False,outname=None,verbose=False,**kwargs):
             fname will in general will be the full file path to the desired file, so don't expect it
             to be saved in the same directory as the original w/o making sure the file path is correct
     '''
+    print(f"Updating json file: {fname}")
     jsn = load_sample_json_file(fname)
     jsn.pop('redirector',None)   # Don't currently store this info in the json
     if verbose:

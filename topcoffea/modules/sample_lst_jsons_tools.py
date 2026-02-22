@@ -69,6 +69,7 @@ def make_json(sample_dir,sample_name,prefix,sample_yr,xsec_name,hist_axis_name,e
         "--xsec"         , path_to_xsecs,
         "--year"         , sample_yr,
         "--histAxisName" , hist_axis_name,
+        "--outname"     , f"{sample_name}_{sample_yr}.json",
     ]
 
     if era is not None:
