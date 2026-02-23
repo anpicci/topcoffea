@@ -17,6 +17,38 @@ _JERSF_FORM = {
     "primitive": "float32",
 }
 
+
+def _is_run2_jec_tag(jec_tag):
+    return "UL" in jec_tag
+
+
+def _canonicalize_junc_type_label(junc_type, jec_tag):
+    # Preserve existing Run2 naming: regrouped UL sources drop the "Regrouped_" prefix.
+    if _is_run2_jec_tag(jec_tag) and junc_type.startswith("Regrouped_"):
+        return junc_type.replace("Regrouped_", "", 1)
+    return junc_type
+
+
+def get_jec_uncertainty_label(junc_name, jec_tag, jet_algo):
+    """
+    Extract the uncertainty label from a full correction name:
+      {jec_tag}_{junc_type}_{jet_algo}
+    """
+    prefix = f"{jec_tag}_"
+    suffix = f"_{jet_algo}"
+    if not junc_name.startswith(prefix):
+        raise ValueError(
+            f'Uncertainty name "{junc_name}" does not start with expected prefix "{prefix}".'
+        )
+    if not junc_name.endswith(suffix):
+        raise ValueError(
+            f'Uncertainty name "{junc_name}" does not end with expected suffix "{suffix}".'
+        )
+    junc_type = junc_name[len(prefix) : -len(suffix)]
+    if not junc_type:
+        raise ValueError(f'Failed to extract junc_type from uncertainty name "{junc_name}".')
+    return _canonicalize_junc_type_label(junc_type, jec_tag)
+
 def rewrap_recordarray(layout, depth, data):
     if isinstance(layout, awkward.layout.RecordArray):
         return lambda: data
@@ -542,7 +574,11 @@ class CorrectedJetsFactory(object):
                     central = awkward.ones_like(out_dict[self.name_map["JetPt"]])
                     unc_up = central + unc
                     unc_down = central - unc
-                    uncnames.append(junc_name.split("_")[-2])
+                    uncnames.append(
+                        get_jec_uncertainty_label(
+                            junc_name, self.jec_stack.jec_tag, self.jec_stack.jet_algo
+                        )
+                    )
                     uncvalues.append([unc_up, unc_down])
                 del juncjets
 
