@@ -10,6 +10,6 @@ dependencies:
   - xrootd
   - git
   - pyyaml
+  - pytest
   - pip:
     - coffea>=0.7.26
-

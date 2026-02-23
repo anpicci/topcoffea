@@ -1,4 +1,5 @@
 #! /usr/bin/env python
+import copy
 import json
 import hashlib
 import subprocess
@@ -18,6 +19,13 @@ logging.basicConfig(level=logging.INFO, format='%(asctime)s:%(levelname)s:%(mess
 
 env_dir_cache = Path.cwd().joinpath(Path('topeft-envs'))
 
+_CORE_BOOTSTRAP_PACKAGES = {"pip", "conda", "python"}
+_SAFE_CORE_DEFAULTS = {
+    "pip": "pip>=24,<25",
+    "conda": "conda>=24,<25",
+    "python": f"python={sys.version_info[0]}.{sys.version_info[1]}",
+}
+
 py_version = "{}.{}.{}".format(
     sys.version_info[0], sys.version_info[1], sys.version_info[2]
 )  # 3.8 or 3.9, or etc.
@@ -33,6 +41,7 @@ default_modules = {
             "ndcctools>=7.14.7",
             "xrootd",
             "setuptools==70.3.0",
+            "pyyaml"
         ],
     },
     "pip": ["topcoffea", "coffea==0.7.26"],
@@ -92,6 +101,9 @@ def _check_current_env(spec: Dict):
             for i in range(len(spec['conda']['packages'])):
                 # ignore packages where a version is already specified
                 package = spec['conda']['packages'][i]
+                pkg_name = _package_basename(package)
+                if pkg_name in _CORE_BOOTSTRAP_PACKAGES:
+                    continue
                 if not re.search("[!~=<>].*$", package):
                     if package in conda_deps:
                         spec['conda']['packages'][i] = conda_deps[package]
@@ -100,10 +112,109 @@ def _check_current_env(spec: Dict):
             for i in range(len(spec['pip'])):
                 # ignore packages where a version is already specified
                 package = spec['pip'][i]
+                pkg_name = _package_basename(package)
+                if pkg_name in _CORE_BOOTSTRAP_PACKAGES:
+                    continue
                 if not re.search("[!~=<>].*$", package):
                     if package in pip_deps:
                         spec['pip'][i] = pip_deps[package]
     return spec
+
+
+def _sanitize_spec(spec: Dict) -> Dict:
+    """
+    Relax pins for core bootstrap packages that may not exist on conda-forge and drop build strings.
+
+    This helper is intentionally conservative: it keeps the original package set intact
+    while normalizing package strings to avoid inheriting host-specific constraints.
+
+    >>> _sanitize_spec({"conda": {"channels": ["conda-forge"], "packages": ["pip=25.1=py310"]}, "pip": []})
+    {'conda': {'channels': ['conda-forge'], 'packages': ['pip>=24,<25']}, 'pip': []}
+    """
+
+    def _sanitize_conda_package(package: str) -> str:
+        package = _strip_build_string(package)
+        base = _package_basename(package)
+        if base in _CORE_BOOTSTRAP_PACKAGES:
+            return _sanitize_core_package(package)
+        return package
+
+    def _sanitize_pip_package(package: str) -> str:
+        package = _strip_build_string(package)
+        base = _package_basename(package)
+        if base in _CORE_BOOTSTRAP_PACKAGES:
+            return _sanitize_core_package(package)
+        return package
+
+    sanitized = copy.deepcopy(spec)
+    sanitized["conda"]["packages"] = [_sanitize_conda_package(p) for p in sanitized["conda"]["packages"]]
+    sanitized["pip"] = [_sanitize_pip_package(p) for p in sanitized.get("pip", [])]
+    return sanitized
+
+
+def _strip_build_string(package: str) -> str:
+    """Drop build-string segments (the third '=' token) from conda package specs."""
+
+    return re.sub(r"^([^=]+=[^=,]+)=.*$", r"\1", package)
+
+
+def _package_basename(package: str) -> str:
+    """Return the base package name without version or comparison operators."""
+
+    # split on the first comparison/operator token
+    return re.split(r"[=<>!~]", package, maxsplit=1)[0]
+
+
+def _sanitize_core_package(package: str) -> str:
+    package = _strip_build_string(package)
+    base = _package_basename(package)
+    version = _extract_equality_version(package, base)
+
+    if base == "pip":
+        if version and _version_at_least(version, (25,)):
+            return _SAFE_CORE_DEFAULTS["pip"]
+    elif base == "conda":
+        if version and _version_at_least(version, (25,)):
+            return _SAFE_CORE_DEFAULTS["conda"]
+    elif base == "python":
+        if version:
+            python_mm = _major_minor(version)
+            if python_mm:
+                return f"python={python_mm[0]}.{python_mm[1]}"
+    return package
+
+
+def _extract_equality_version(package: str, base: str) -> Optional[str]:
+    match = re.match(rf"^{re.escape(base)}={{1,2}}([^<>=!~]+)$", package)
+    if match:
+        return match.group(1)
+    return None
+
+
+def _major_minor(version: str) -> Optional[tuple[int, int]]:
+    pieces = _version_tuple(version)
+    if len(pieces) >= 2:
+        return pieces[0], pieces[1]
+    return None
+
+
+def _version_at_least(version: str, minimum: tuple[int, ...]) -> bool:
+    parsed = _version_tuple(version)
+    if not parsed:
+        return False
+    padded = parsed + (0,) * (len(minimum) - len(parsed))
+    target = minimum + (0,) * (len(padded) - len(minimum))
+    return padded >= target
+
+
+def _version_tuple(version: str) -> tuple[int, ...]:
+    parts: List[int] = []
+    for token in re.split(r"[._-]", version):
+        if token.isdigit():
+            parts.append(int(token))
+        else:
+            break
+    return tuple(parts)
 
 
 def _create_env(env_name: str, spec: Dict, force: bool = False):
@@ -117,7 +228,7 @@ def _create_env(env_name: str, spec: Dict, force: bool = False):
     with tempfile.NamedTemporaryFile() as f:
         logger.info("Checking current conda environment")
         spec = _check_current_env(spec)
-
+        spec = _sanitize_spec(spec)
         packages_json = json.dumps(spec)
         logger.info("base env specification:{}".format(packages_json))
         f.write(packages_json.encode())
@@ -224,8 +335,8 @@ def get_environment(
     # ensure cache directory exists
     Path(env_dir_cache).mkdir(parents=True, exist_ok=True)
 
-    spec = dict(default_modules)
-    spec_pip_local_to_watch = dict(pip_local_to_watch)
+    spec = copy.deepcopy(default_modules)
+    spec_pip_local_to_watch = copy.deepcopy(pip_local_to_watch)
     if extra_conda:
         spec["conda"]["packages"].extend(extra_conda)
     if extra_pip:

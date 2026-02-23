@@ -17,6 +17,38 @@ _JERSF_FORM = {
     "primitive": "float32",
 }
 
+
+def _is_run2_jec_tag(jec_tag):
+    return "UL" in jec_tag
+
+
+def _canonicalize_junc_type_label(junc_type, jec_tag):
+    # Preserve existing Run2 naming: regrouped UL sources drop the "Regrouped_" prefix.
+    if _is_run2_jec_tag(jec_tag) and junc_type.startswith("Regrouped_"):
+        return junc_type.replace("Regrouped_", "", 1)
+    return junc_type
+
+
+def get_jec_uncertainty_label(junc_name, jec_tag, jet_algo):
+    """
+    Extract the uncertainty label from a full correction name:
+      {jec_tag}_{junc_type}_{jet_algo}
+    """
+    prefix = f"{jec_tag}_"
+    suffix = f"_{jet_algo}"
+    if not junc_name.startswith(prefix):
+        raise ValueError(
+            f'Uncertainty name "{junc_name}" does not start with expected prefix "{prefix}".'
+        )
+    if not junc_name.endswith(suffix):
+        raise ValueError(
+            f'Uncertainty name "{junc_name}" does not end with expected suffix "{suffix}".'
+        )
+    junc_type = junc_name[len(prefix) : -len(suffix)]
+    if not junc_type:
+        raise ValueError(f'Failed to extract junc_type from uncertainty name "{junc_name}".')
+    return _canonicalize_junc_type_label(junc_type, jec_tag)
+
 def rewrap_recordarray(layout, depth, data):
     if isinstance(layout, awkward.layout.RecordArray):
         return lambda: data
@@ -95,32 +127,40 @@ def rawvar_jec(jecval, rawvar, lazy_cache):
         cache=lazy_cache,
     )
 
-def get_corr_inputs(jets, corr_obj, name_map, cache=None, corrections=None):
+def get_corr_inputs(jets, corr_obj, name_map, run, cache=None, corrections=None):
     """
     Helper function for getting values of input variables
     given a dictionary and a correction object.
     """
 
-    if corrections is None:
-        input_values = [awkward.flatten(jets[name_map[inp.name]]) for inp in corr_obj.inputs if (inp.name != "systematic")]
-    else:
-        ## This is needed to propagate the previous level of corrections, before applying the next one
-        input_values = []
-        for inp in corr_obj.inputs:
-            if inp.name == "systematic":
-                continue
-            elif inp.name == "JetPt":
-                rawvar = awkward.flatten(jets[name_map[inp.name]])
-                init_input_value = partial(rawvar_jec, rawvar=rawvar, lazy_cache=cache)
-                input_value = init_input_value(jecval=corrections)
-            else:
-                input_value = awkward.flatten(jets[name_map[inp.name]])
-            input_values.append(input_value)
+    input_values = []
+
+    # Precompute the flattened "run per jet" once (only if needed)
+    run_flat = None
+    if any(inp.name == "run" for inp in corr_obj.inputs):
+        run_flat = awkward.flatten(
+            awkward.ones_like(jets[name_map["JetPt"]], dtype=numpy.int32) * run
+        )
+
+    for inp in corr_obj.inputs:
+        if inp.name == "systematic":
+            continue
+        elif inp.name == "run":
+            input_value = run_flat
+        elif inp.name == "JetPt" and corrections is not None:
+            rawvar = awkward.flatten(jets[name_map[inp.name]])
+            init_input_value = partial(rawvar_jec, rawvar=rawvar, lazy_cache=cache)
+            input_value = init_input_value(jecval=corrections)
+        else:
+            input_value = awkward.flatten(jets[name_map[inp.name]])
+
+        input_values.append(input_value)
+
     return input_values
 
 
 class CorrectedJetsFactory(object):
-    def __init__(self, name_map, jec_stack):
+    def __init__(self, name_map, jec_stack, run):
         if not isinstance(jec_stack, JECStack):
             raise TypeError("jec_stack must be an instance of JECStack")
 
@@ -145,6 +185,7 @@ class CorrectedJetsFactory(object):
 
         self.jec_stack = jec_stack
         self.name_map = name_map
+        self.run = run
 
         if self.jec_stack.use_clib:
             # For clib scenario, load corrections from json_path
@@ -239,7 +280,7 @@ class CorrectedJetsFactory(object):
                     raise ValueError(f"Correction {lvl} not found in self.corrections")
 
                 ## This automatically apply the previous levels of correction, when needed
-                inputs = get_corr_inputs(jets=jets, corr_obj=sf, name_map=jec_name_map, cache=lazy_cache, corrections=cumCorr)
+                inputs = get_corr_inputs(jets=jets, corr_obj=sf, name_map=jec_name_map, run=self.run, cache=lazy_cache, corrections=cumCorr)
                 correction = sf.evaluate(*inputs).astype(dtype=numpy.float32)
                 corrections_list.append(correction)
                 if total_correction is None:
@@ -333,7 +374,7 @@ class CorrectedJetsFactory(object):
                     outtag = "jet_energy_resolution"
                     jer_entry = jer_entry.replace("SF", "ScaleFactor")
                     sf = self.corrections[jer_entry]
-                    inputs = get_corr_inputs(jets=jerjets, corr_obj=sf, name_map=jer_name_map)
+                    inputs = get_corr_inputs(jets=jerjets, corr_obj=sf, name_map=jer_name_map, run=self.run)
                     if "ScaleFactor" in jer_entry:
                         outtag += "_scale_factor"
                         correction = awkward.Array([
@@ -528,12 +569,16 @@ class CorrectedJetsFactory(object):
                     if sf is None:
                         raise ValueError(f"Correction {junc_name} not found in self.corrections")
 
-                    inputs = get_corr_inputs(jets=juncjets, corr_obj=sf, name_map=junc_name_map)
+                    inputs = get_corr_inputs(jets=juncjets, corr_obj=sf, name_map=junc_name_map, run=self.run)
                     unc = awkward.values_astype(sf.evaluate(*inputs), numpy.float32)
                     central = awkward.ones_like(out_dict[self.name_map["JetPt"]])
                     unc_up = central + unc
                     unc_down = central - unc
-                    uncnames.append(junc_name.split("_")[-2])
+                    uncnames.append(
+                        get_jec_uncertainty_label(
+                            junc_name, self.jec_stack.jec_tag, self.jec_stack.jet_algo
+                        )
+                    )
                     uncvalues.append([unc_up, unc_down])
                 del juncjets
 

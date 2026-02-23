@@ -1,10 +1,28 @@
-import os
-import re
-import json
+"""General utility helpers for :mod:`topcoffea`."""
+
 import gzip
+import json
+import os
 import pickle
-import cloudpickle
-import uproot
+import re
+import time
+from functools import lru_cache
+
+try:  # pragma: no cover - exercised when cloudpickle is unavailable
+    import cloudpickle
+except ModuleNotFoundError:  # pragma: no cover - minimal environments
+    cloudpickle = pickle  # type: ignore[assignment]
+try:  # pragma: no cover - uproot is optional for histogram helpers
+    import uproot
+except ModuleNotFoundError:  # pragma: no cover - allow tests without uproot
+    uproot = None  # type: ignore[assignment]
+
+from .hist_utils import (
+    get_hist_dict_non_empty,
+    iterate_hist_from_pkl as _iterate_hist_from_pkl,
+    iterate_histograms_from_pkl,
+)
+
 
 pjoin = os.path.join
 
@@ -25,6 +43,85 @@ def get_pdiff(a,b,in_percent=False):
     return p
 
 ############## Strings manipulations and tools ##############
+
+
+def _rate_syst_json_path():
+    return os.path.abspath(pjoin(os.path.dirname(__file__), "..", "params", "rate_systs.json"))
+
+
+@lru_cache(maxsize=1)
+def _cached_rate_syst_dict():
+    with open(_rate_syst_json_path()) as f:
+        return json.load(f)
+
+
+def _convert_syst_to_range(uncertainty_value):
+    if isinstance(uncertainty_value, str) and "/" in uncertainty_value:
+        down, up = (float(v) for v in uncertainty_value.split("/", maxsplit=1))
+    elif isinstance(uncertainty_value, (int, float)):
+        up = float(uncertainty_value)
+        down = 2.0 - up
+    else:
+        raise ValueError(f"Unexpected rate systematic format: {uncertainty_value}")
+
+    return (down, up, 0)
+
+
+def cached_get_syst(uncertainty_name, sample_name=None):
+    rate_syst_dict = _cached_rate_syst_dict().get("rate_uncertainties", {})
+
+    raw_value = rate_syst_dict.get(uncertainty_name)
+    if isinstance(raw_value, dict) and sample_name is not None:
+        raw_value = raw_value.get(sample_name)
+
+    if raw_value is None:
+        return (1.0, 1.0, 0)
+
+    return _convert_syst_to_range(raw_value)
+
+
+def cached_get_syst_lst():
+    return list(_cached_rate_syst_dict().get("rate_uncertainties", {}).keys())
+
+
+def cached_get_correlation_tag(uncertainty_name, process_name):
+    correlations = _cached_rate_syst_dict().get("correlations", {})
+    process_corrs = correlations.get(process_name, {})
+    return process_corrs.get(uncertainty_name)
+
+
+# Return process names with a normalized leading token
+def canonicalize_process_name(process_name):
+    """Normalize dataset names used in data-driven workflows.
+
+    The TopEFT workflows commonly label non-prompt and charge-flip templates
+    with mixed-case prefixes (e.g. ``NonPromptUL18`` or ``Flips2023BPix``).
+    This helper lowercases the leading alphabetical token while preserving
+    any trailing year/suffix information so that templates can be matched
+    consistently across Run 2 and Run 3 naming conventions.
+
+    Examples
+    --------
+    >>> canonicalize_process_name("NonPromptUL16APV")
+    'nonpromptUL16APV'
+    >>> canonicalize_process_name("Flips2022EE")
+    'flips2022EE'
+
+    """
+
+    match = re.match(r"([A-Za-z]+)(.*)", process_name)
+    if not match:
+        return process_name
+
+    prefix, remainder = match.groups()
+
+    suffix_match = re.search(r"([A-Z]{2,})$", prefix)
+    if suffix_match and any(ch.islower() for ch in prefix[:suffix_match.start()]):
+        lowered = prefix[:suffix_match.start()].lower() + prefix[suffix_match.start():]
+    else:
+        lowered = prefix.lower()
+
+    return lowered + remainder
 
 # Match strings using one or more regular expressions
 def regex_match(lst,regex_lst):
@@ -117,40 +214,69 @@ def get_files(top_dir,**kwargs):
             found.append(fpath)
     return found
 
+
 # Extracts event information from a root file
-def get_info(fname, tree_name = "Events"):
-    # The info we want to get
-    raw_events = 0  # The raw number of entries as reported by TTree.num_entries
-    gen_events = 0  # Number of gen events according to 'genEventCount' or set to raw_events if not found
-    sow_events = 0  # Sum of weights
-    sow_lhe_wgts = 0 # Sum of LHE weights
+def get_info(fname, tree_name="Events", max_retries=10, retry_delay=30):
+    raw_events = 0
+    gen_events = 0
+    sow_events = 0
+    sow_lhe_wgts = None
     is_data = False
+
     print(f"Opening with uproot: {fname}")
-    with uproot.open(fname) as f:
-        tree = f[tree_name]
-        is_data = not "genWeight" in tree
+    attempt = 0
+    while attempt < max_retries:
+        attempt += 1
+        try:
+            # This both opens and ensures f.close() on exit
+            with uproot.open(fname) as f:
+                tree = f[tree_name]
+                is_data = "genWeight" not in tree
+                raw_events = int(tree.num_entries)
 
-        raw_events = int(tree.num_entries)
-        if is_data:
-            # Data doesn't have gen or weighted events!
-            gen_events = raw_events
-            sow_events = raw_events
-        else:
-            gen_events = raw_events
-            sow_events = sum(tree["genWeight"])
-            if "Runs" in f:
-                # Instead get event from the "Runs" tree
-                runs = f["Runs"]
-                gen_key = "genEventCount" if "genEventCount" in runs else "genEventCount_"
-                sow_key = "genEventSumw"  if "genEventSumw"  in runs else "genEventSumw_"
-                gen_events = sum(runs[gen_key].array())
-                sow_events = sum(runs[sow_key].array())
+                if is_data:
+                    gen_events = raw_events
+                    sow_events = raw_events
+                else:
+                    gen_events = raw_events
+                    sow_events = sum(tree["genWeight"])
+                    if "Runs" in f:
+                        runs = f["Runs"]
+                        gen_key = "genEventCount" if "genEventCount" in runs else "genEventCount_"
+                        sow_key = "genEventSumw"   if "genEventSumw"   in runs else "genEventSumw_"
+                        try:
+                            gen_events = sum(runs[gen_key].array())
+                            sow_events = sum(runs[sow_key].array())
+                            lhe = runs["LHEScaleSumw"].array()
+                            sow_lhe_wgts = sum(runs[sow_key].array() * lhe)
+                        except KeyError as e:
+                            print(f"\tMissing branch in Runs tree: {e}, using default sums")
+            # success!
+            print(f"\tRemote reading of {fname!r} succeeded on attempt {attempt}/{max_retries}.")
+            break
 
-                # Get the LHE weights array (note it's stored as a ratio, so multiply by sow before summing)
-                sow_arr = runs[sow_key].array()
-                LHEScaleSumw_arr = runs["LHEScaleSumw"].array()
-                sow_lhe_wgts = sum(sow_arr*LHEScaleSumw_arr)
+        except Exception as err:
+            msg = str(err).lower()
+            if "operation expired" in msg or "no servers are available to read the file" in msg or "unable to read" in msg or "couldn't process":
+                print(f"\tNetwork issue on attempt {attempt}/{max_retries} ({err}), retrying in {retry_delay}s …")
+                time.sleep(retry_delay)
+                continue
+            else:
+                print(f"\tCouldn’t process {fname!r}: {err}")
+                break
+    else:
+        # This block runs if we never 'break'—i.e. all retries exhausted
+        print(f"\tGiving up on file {fname!r} after {max_retries} retries due to repeated network errors.")
 
+    # Ensure defaults if nothing was read
+    if raw_events == 0:
+        gen_events = 0
+        sow_events = 0
+        sow_lhe_wgts = None
+        is_data = False
+
+    print(f"\tFound {raw_events} raw events, {gen_events} gen events, "
+          f"{sow_events} sum of weights, {sow_lhe_wgts} sum of LHE weights, is_data={is_data}")
     return [raw_events, gen_events, sow_events, sow_lhe_wgts, is_data]
 
 
@@ -278,16 +404,15 @@ def dump_to_pkl(out_name,out_file):
     print("Done.\n")
 
 
-def get_hist_dict_non_empty(h):
-    return {k: v for k, v in h.items() if not v.empty()}
+def iterate_hist_from_pkl(*args, **kwargs):
+    return _iterate_hist_from_pkl(*args, **kwargs)
 
 
 # Get the dictionary of hists from the pkl file (e.g. that a processor outputs)
 def get_hist_from_pkl(path_to_pkl, allow_empty=True):
-    h = pickle.load(gzip.open(path_to_pkl))
-    if not allow_empty:
-        h = get_hist_dict_non_empty(h)
-    return h
+    return iterate_hist_from_pkl(
+        path_to_pkl, allow_empty=allow_empty, materialize=True
+    )
 
 
 ############## Dictionary manipulations and tools ##############
