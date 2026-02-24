@@ -79,13 +79,7 @@ def test_run_ddr_invokes_preprocess_and_ddr(mock_preprocess, mock_ddr):
 
     mock_ddr.assert_called_once()
     ddr_kwargs = mock_ddr.call_args.kwargs
-    assert ddr_kwargs["data"] == {
-        "sample": {
-            "files": {
-                "/path.root": {"object_path": "Events", "num_entries": 5},
-            }
-        }
-    }
+    assert ddr_kwargs["data"] == _preprocessed_payload()
     assert ddr_kwargs["processors"] is processors
     assert ddr_kwargs["extra_files"] == ("analysis.py",)
     assert "accumulator" not in ddr_kwargs
@@ -113,8 +107,7 @@ def test_run_ddr_skips_preprocess_when_preprocessed_data_path(
 
     mock_preprocess.assert_not_called()
     mock_ddr.assert_called_once()
-    ddr_kwargs = mock_ddr.call_args.kwargs
-    assert ddr_kwargs["data"] == _preprocessed_payload()
+    assert mock_ddr.call_args.kwargs["data"] == _preprocessed_payload()
     assert result == {"status": "ok"}
 
 
@@ -206,6 +199,47 @@ def test_run_ddr_rejects_invalid_preprocessed_mapping(
 
     mock_preprocess.assert_not_called()
     mock_ddr.assert_not_called()
+
+
+@mock.patch.object(ddr_module, "CoffeaDynamicDataReduction")
+@mock.patch.object(ddr_module, "preprocess")
+def test_run_ddr_forwards_explicit_knobs(mock_preprocess, mock_ddr):
+    mock_preprocess.return_value = _preprocessed_payload()
+    ddr_instance = mock_ddr.return_value
+    ddr_instance.compute.return_value = {"accumulator": 2}
+    ddr_instance.environment_variables = {"EXISTING": "1"}
+
+    result = ddr_module.run_ddr(
+        manager=object(),
+        data={"sample": {"files": {"/path.root": {"object_path": "Events"}}}},
+        processors={"proc": object()},
+        schema="schema",
+        step_size=600000,
+        max_task_retries=20,
+        resources_processing={"cores": 2},
+        resources_accumulating={"cores": 1},
+        results_directory="/tmp/results",
+        verbose=True,
+        x509_proxy="/tmp/x509up_u123",
+        environment_variables={"X509_USER_PROXY": "proxy.pem"},
+        preprocess_kwargs={"timeout": 10},
+    )
+
+    preprocess_options = mock_preprocess.call_args.kwargs
+    assert preprocess_options["x509_proxy"] == "/tmp/x509up_u123"
+    assert preprocess_options["environment_variables"]["X509_USER_PROXY"] == "proxy.pem"
+
+    ddr_kwargs = mock_ddr.call_args.kwargs
+    assert ddr_kwargs["step_size"] == 600000
+    assert ddr_kwargs["max_task_retries"] == 20
+    assert ddr_kwargs["resources_processing"] == {"cores": 2}
+    assert ddr_kwargs["resources_accumulating"] == {"cores": 1}
+    assert ddr_kwargs["results_directory"] == "/tmp/results"
+    assert ddr_kwargs["verbose"] is True
+    assert ddr_kwargs["x509_proxy"] == "/tmp/x509up_u123"
+    assert ddr_instance.environment_variables["EXISTING"] == "1"
+    assert ddr_instance.environment_variables["X509_USER_PROXY"] == "proxy.pem"
+    assert result == {"accumulator": 2}
 
 
 @pytest.mark.integration
