@@ -2,9 +2,14 @@
 
 from __future__ import annotations
 
+import json
 import logging
 import numbers
+import os
+from pathlib import Path
 from typing import Any, Dict, Mapping, MutableMapping, Optional, Sequence, Tuple
+
+import cloudpickle
 
 try:  # pragma: no cover - optional dependency
     from dynamic_data_reduction import preprocess, CoffeaDynamicDataReduction
@@ -140,19 +145,123 @@ def _diagnose_failed_file(path: str, tree_name: str) -> str:
         return f"{exc.__class__.__name__}: {exc}"
 
 
+def _validate_preprocessed_mapping(
+    payload: Any,
+    *,
+    source: str,
+) -> Mapping[str, Mapping[str, Any]]:
+    """Validate that *payload* resembles preprocess() output."""
+
+    if not isinstance(payload, Mapping):
+        raise TypeError(
+            f"DDR preprocessed data loaded from {source!r} must be a mapping, got {type(payload)!r}."
+        )
+    for dataset, specs in payload.items():
+        if not isinstance(specs, Mapping):
+            raise TypeError(
+                "DDR preprocessed dataset entry must be a mapping: "
+                f"{dataset!r} -> {type(specs)!r}."
+            )
+        files = specs.get("files")
+        if not isinstance(files, Mapping):
+            raise TypeError(
+                "DDR preprocessed dataset entry must contain a mapping-valued "
+                f"'files' field: dataset={dataset!r}."
+            )
+    return payload  # type: ignore[return-value]
+
+
+def _load_preprocessed_mapping(path: str) -> Mapping[str, Mapping[str, Any]]:
+    """Load preprocess() output from *path* (JSON first, cloudpickle fallback)."""
+
+    preprocessed_path = Path(path).expanduser()
+    if not preprocessed_path.exists():
+        raise FileNotFoundError(
+            f"DDR preprocessed data file does not exist: {preprocessed_path}"
+        )
+    if not preprocessed_path.is_file():
+        raise FileNotFoundError(
+            f"DDR preprocessed data path is not a file: {preprocessed_path}"
+        )
+    if not os.access(preprocessed_path, os.R_OK):
+        raise PermissionError(
+            f"DDR preprocessed data file is not readable: {preprocessed_path}"
+        )
+
+    payload: Any
+    data = preprocessed_path.read_bytes()
+    loaded_from = "json"
+    try:
+        payload = json.loads(data.decode("utf-8"))
+    except Exception:
+        loaded_from = "cloudpickle"
+        try:
+            payload = cloudpickle.loads(data)
+        except Exception as exc:
+            raise ValueError(
+                "Failed to load DDR preprocessed data as JSON or cloudpickle from "
+                f"{preprocessed_path}."
+            ) from exc
+
+    validated = _validate_preprocessed_mapping(payload, source=str(preprocessed_path))
+    logger.info(
+        "Loaded DDR preprocessed data from %s using %s format",
+        preprocessed_path,
+        loaded_from,
+    )
+    return validated
+
+
+def _save_preprocessed_mapping(path: str, payload: Mapping[str, Mapping[str, Any]]) -> None:
+    """Persist preprocess() output to *path* (JSON preferred, cloudpickle fallback)."""
+
+    preprocessed_path = Path(path).expanduser()
+    preprocessed_path.parent.mkdir(parents=True, exist_ok=True)
+
+    try:
+        with preprocessed_path.open("w", encoding="utf-8") as handle:
+            json.dump(payload, handle, indent=2, sort_keys=True)
+            handle.write("\n")
+        logger.info("Saved DDR preprocessed data to %s (json)", preprocessed_path)
+        return
+    except TypeError:
+        logger.warning(
+            "DDR preprocessed payload is not JSON-serializable; falling back to cloudpickle at %s",
+            preprocessed_path,
+        )
+
+    with preprocessed_path.open("wb") as handle:
+        cloudpickle.dump(payload, handle)
+    logger.info("Saved DDR preprocessed data to %s (cloudpickle)", preprocessed_path)
+
+
 def run_ddr(
     *,
     manager: Any,
     data: Mapping[str, Any],
     processors: Mapping[str, Any],
-    accumulator: Any,
     schema: Any,
     extra_files: Optional[Sequence[str]] = None,
     tree_name: str = "Events",
+    preprocessed_data_path: Optional[str] = None,
+    save_preprocess_path: Optional[str] = None,
+    step_size: Optional[int] = None,
+    max_task_retries: Optional[int] = None,
+    resources_processing: Optional[Mapping[str, Any]] = None,
+    resources_accumulating: Optional[Mapping[str, Any]] = None,
+    results_directory: Optional[str] = None,
+    verbose: Optional[bool] = None,
+    x509_proxy: Optional[str] = None,
+    environment_variables: Optional[Mapping[str, str]] = None,
     preprocess_kwargs: Optional[Dict[str, Any]] = None,
     ddr_kwargs: Optional[Dict[str, Any]] = None,
 ) -> Any:
-    """Preprocess inputs and run CoffeaDynamicDataReduction."""
+    """Preprocess inputs and run CoffeaDynamicDataReduction.
+
+    This helper is intended for coordinated topeft/topcoffea integration workflows;
+    its interface may evolve with coordinated refs and is not guaranteed to stay
+    frozen across unrelated version combinations.
+    """
 
     if preprocess is None or CoffeaDynamicDataReduction is None:
         raise ImportError(
@@ -162,15 +271,33 @@ def run_ddr(
 
     preprocess_options = dict(preprocess_kwargs or {})
     tree_arg = preprocess_options.pop("tree_name", tree_name)
+    if x509_proxy is not None and "x509_proxy" not in preprocess_options:
+        preprocess_options["x509_proxy"] = x509_proxy
+    if environment_variables is not None and "environment_variables" not in preprocess_options:
+        preprocess_options["environment_variables"] = {
+            str(key): str(value) for key, value in environment_variables.items()
+        }
 
-    logger.info("Preprocessing DDR inputs (samples: %d)", len(data))
-    preprocessed_data = preprocess(
-        manager=manager,
-        data=data,
-        tree_name=tree_arg,
-        **preprocess_options,
-    )
-    logger.info("Preprocessing complete")
+    if preprocessed_data_path:
+        preprocessed_data = _load_preprocessed_mapping(preprocessed_data_path)
+        logger.info("Skipping preprocess(); using preprocessed payload from disk")
+        if save_preprocess_path:
+            _save_preprocessed_mapping(save_preprocess_path, preprocessed_data)
+    else:
+        logger.info("Preprocessing DDR inputs (samples: %d)", len(data))
+        preprocessed_data = preprocess(
+            manager=manager,
+            data=data,
+            tree_name=tree_arg,
+            **preprocess_options,
+        )
+        logger.info("Preprocessing complete")
+        if save_preprocess_path:
+            _save_preprocessed_mapping(
+                save_preprocess_path,
+                _validate_preprocessed_mapping(preprocessed_data, source="preprocess()"),
+            )
+
     filtered_data, summary = filter_preprocessed_data(preprocessed_data)
 
     if summary["bad_files_count"] > 0:
@@ -205,16 +332,41 @@ def run_ddr(
     ddr_options = dict(ddr_kwargs or {})
     if extra_files is not None and "extra_files" not in ddr_options:
         ddr_options["extra_files"] = extra_files
+    if step_size is not None:
+        ddr_options["step_size"] = int(step_size)
+    if max_task_retries is not None:
+        ddr_options["max_task_retries"] = int(max_task_retries)
+    if resources_processing is not None:
+        ddr_options["resources_processing"] = dict(resources_processing)
+    if resources_accumulating is not None:
+        ddr_options["resources_accumulating"] = dict(resources_accumulating)
+    if results_directory is not None:
+        ddr_options["results_directory"] = str(results_directory)
+    if verbose is not None:
+        ddr_options["verbose"] = bool(verbose)
+    if x509_proxy is not None:
+        ddr_options["x509_proxy"] = x509_proxy
 
     logger.info("Constructing CoffeaDynamicDataReduction (processors: %d)", len(processors))
     ddr = CoffeaDynamicDataReduction(
         manager,
         data=filtered_data,
         processors=processors,
-        accumulator=accumulator,
         schema=schema,
         **ddr_options,
     )
+    if environment_variables:
+        env_updates = {str(key): str(value) for key, value in environment_variables.items()}
+        ddr_env = getattr(ddr, "environment_variables", None)
+        if isinstance(ddr_env, MutableMapping):
+            ddr_env.update(env_updates)
+        elif ddr_env is None:
+            setattr(ddr, "environment_variables", dict(env_updates))
+        else:  # pragma: no cover - defensive fallback for custom DDR objects
+            try:
+                ddr_env.update(env_updates)
+            except Exception:
+                setattr(ddr, "environment_variables", dict(env_updates))
 
     logger.info("Launching DDR compute()")
     result = ddr.compute()
