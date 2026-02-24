@@ -149,6 +149,14 @@ def run_ddr(
     schema: Any,
     extra_files: Optional[Sequence[str]] = None,
     tree_name: str = "Events",
+    step_size: Optional[int] = None,
+    max_task_retries: Optional[int] = None,
+    resources_processing: Optional[Mapping[str, Any]] = None,
+    resources_accumulating: Optional[Mapping[str, Any]] = None,
+    results_directory: Optional[str] = None,
+    verbose: Optional[bool] = None,
+    x509_proxy: Optional[str] = None,
+    environment_variables: Optional[Mapping[str, str]] = None,
     preprocess_kwargs: Optional[Dict[str, Any]] = None,
     ddr_kwargs: Optional[Dict[str, Any]] = None,
 ) -> Any:
@@ -162,6 +170,8 @@ def run_ddr(
 
     preprocess_options = dict(preprocess_kwargs or {})
     tree_arg = preprocess_options.pop("tree_name", tree_name)
+    if x509_proxy is not None and "x509_proxy" not in preprocess_options:
+        preprocess_options["x509_proxy"] = x509_proxy
 
     logger.info("Preprocessing DDR inputs (samples: %d)", len(data))
     preprocessed_data = preprocess(
@@ -205,6 +215,20 @@ def run_ddr(
     ddr_options = dict(ddr_kwargs or {})
     if extra_files is not None and "extra_files" not in ddr_options:
         ddr_options["extra_files"] = extra_files
+    if step_size is not None:
+        ddr_options["step_size"] = int(step_size)
+    if max_task_retries is not None:
+        ddr_options["max_task_retries"] = int(max_task_retries)
+    if resources_processing is not None:
+        ddr_options["resources_processing"] = dict(resources_processing)
+    if resources_accumulating is not None:
+        ddr_options["resources_accumulating"] = dict(resources_accumulating)
+    if results_directory is not None:
+        ddr_options["results_directory"] = str(results_directory)
+    if verbose is not None:
+        ddr_options["verbose"] = bool(verbose)
+    if x509_proxy is not None:
+        ddr_options["x509_proxy"] = x509_proxy
 
     logger.info("Constructing CoffeaDynamicDataReduction (processors: %d)", len(processors))
     ddr = CoffeaDynamicDataReduction(
@@ -215,6 +239,18 @@ def run_ddr(
         schema=schema,
         **ddr_options,
     )
+    if environment_variables:
+        env_updates = {str(key): str(value) for key, value in environment_variables.items()}
+        ddr_env = getattr(ddr, "environment_variables", None)
+        if isinstance(ddr_env, MutableMapping):
+            ddr_env.update(env_updates)
+        elif ddr_env is None:
+            setattr(ddr, "environment_variables", dict(env_updates))
+        else:  # pragma: no cover - defensive fallback for custom DDR objects
+            try:
+                ddr_env.update(env_updates)
+            except Exception:
+                setattr(ddr, "environment_variables", dict(env_updates))
 
     logger.info("Launching DDR compute()")
     result = ddr.compute()

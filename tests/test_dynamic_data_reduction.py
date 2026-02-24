@@ -86,6 +86,53 @@ def test_run_ddr_invokes_preprocess_and_ddr(mock_preprocess, mock_ddr):
     assert result == {"accumulator": 1}
 
 
+@mock.patch.object(ddr_module, "CoffeaDynamicDataReduction")
+@mock.patch.object(ddr_module, "preprocess")
+def test_run_ddr_forwards_explicit_knobs(mock_preprocess, mock_ddr):
+    mock_preprocess.return_value = {
+        "sample": {
+            "files": {
+                "/path.root": {"object_path": "Events", "num_entries": 5},
+            }
+        }
+    }
+    ddr_instance = mock_ddr.return_value
+    ddr_instance.compute.return_value = {"accumulator": 2}
+    ddr_instance.environment_variables = {"EXISTING": "1"}
+
+    result = ddr_module.run_ddr(
+        manager=object(),
+        data={"sample": {"files": {"/path.root": {"object_path": "Events"}}}},
+        processors={"proc": object()},
+        accumulator="accumulator",
+        schema="schema",
+        step_size=600000,
+        max_task_retries=20,
+        resources_processing={"cores": 2},
+        resources_accumulating={"cores": 1},
+        results_directory="/tmp/results",
+        verbose=True,
+        x509_proxy="/tmp/x509up_u123",
+        environment_variables={"X509_USER_PROXY": "proxy.pem"},
+        preprocess_kwargs={"timeout": 10},
+    )
+
+    preprocess_kwargs = mock_preprocess.call_args.kwargs
+    assert preprocess_kwargs["x509_proxy"] == "/tmp/x509up_u123"
+
+    ddr_kwargs = mock_ddr.call_args.kwargs
+    assert ddr_kwargs["step_size"] == 600000
+    assert ddr_kwargs["max_task_retries"] == 20
+    assert ddr_kwargs["resources_processing"] == {"cores": 2}
+    assert ddr_kwargs["resources_accumulating"] == {"cores": 1}
+    assert ddr_kwargs["results_directory"] == "/tmp/results"
+    assert ddr_kwargs["verbose"] is True
+    assert ddr_kwargs["x509_proxy"] == "/tmp/x509up_u123"
+    assert ddr_instance.environment_variables["EXISTING"] == "1"
+    assert ddr_instance.environment_variables["X509_USER_PROXY"] == "proxy.pem"
+    assert result == {"accumulator": 2}
+
+
 @pytest.mark.integration
 @pytest.mark.taskvine
 def test_executor_cli_accepts_taskvine_executor(tmp_path):
