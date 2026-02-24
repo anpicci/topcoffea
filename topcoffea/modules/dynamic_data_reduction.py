@@ -2,9 +2,14 @@
 
 from __future__ import annotations
 
+import json
 import logging
 import numbers
+import os
+from pathlib import Path
 from typing import Any, Dict, Mapping, MutableMapping, Optional, Sequence, Tuple
+
+import cloudpickle
 
 try:  # pragma: no cover - optional dependency
     from dynamic_data_reduction import preprocess, CoffeaDynamicDataReduction
@@ -140,15 +145,106 @@ def _diagnose_failed_file(path: str, tree_name: str) -> str:
         return f"{exc.__class__.__name__}: {exc}"
 
 
+def _validate_preprocessed_mapping(
+    payload: Any,
+    *,
+    source: str,
+) -> Mapping[str, Mapping[str, Any]]:
+    """Validate that *payload* resembles preprocess() output."""
+
+    if not isinstance(payload, Mapping):
+        raise TypeError(
+            f"DDR preprocessed data loaded from {source!r} must be a mapping, got {type(payload)!r}."
+        )
+    for dataset, specs in payload.items():
+        if not isinstance(specs, Mapping):
+            raise TypeError(
+                "DDR preprocessed dataset entry must be a mapping: "
+                f"{dataset!r} -> {type(specs)!r}."
+            )
+        files = specs.get("files")
+        if not isinstance(files, Mapping):
+            raise TypeError(
+                "DDR preprocessed dataset entry must contain a mapping-valued "
+                f"'files' field: dataset={dataset!r}."
+            )
+    return payload  # type: ignore[return-value]
+
+
+def _load_preprocessed_mapping(path: str) -> Mapping[str, Mapping[str, Any]]:
+    """Load preprocess() output from *path* (JSON first, cloudpickle fallback)."""
+
+    preprocessed_path = Path(path).expanduser()
+    if not preprocessed_path.exists():
+        raise FileNotFoundError(
+            f"DDR preprocessed data file does not exist: {preprocessed_path}"
+        )
+    if not preprocessed_path.is_file():
+        raise FileNotFoundError(
+            f"DDR preprocessed data path is not a file: {preprocessed_path}"
+        )
+    if not os.access(preprocessed_path, os.R_OK):
+        raise PermissionError(
+            f"DDR preprocessed data file is not readable: {preprocessed_path}"
+        )
+
+    payload: Any
+    data = preprocessed_path.read_bytes()
+    loaded_from = "json"
+    try:
+        payload = json.loads(data.decode("utf-8"))
+    except Exception:
+        loaded_from = "cloudpickle"
+        try:
+            payload = cloudpickle.loads(data)
+        except Exception as exc:
+            raise ValueError(
+                "Failed to load DDR preprocessed data as JSON or cloudpickle from "
+                f"{preprocessed_path}."
+            ) from exc
+
+    validated = _validate_preprocessed_mapping(payload, source=str(preprocessed_path))
+    logger.info(
+        "Loaded DDR preprocessed data from %s using %s format",
+        preprocessed_path,
+        loaded_from,
+    )
+    return validated
+
+
+def _save_preprocessed_mapping(path: str, payload: Mapping[str, Mapping[str, Any]]) -> None:
+    """Persist preprocess() output to *path* (JSON preferred, cloudpickle fallback)."""
+
+    preprocessed_path = Path(path).expanduser()
+    preprocessed_path.parent.mkdir(parents=True, exist_ok=True)
+
+    try:
+        with preprocessed_path.open("w", encoding="utf-8") as handle:
+            json.dump(payload, handle, indent=2, sort_keys=True)
+            handle.write("\n")
+        logger.info("Saved DDR preprocessed data to %s (json)", preprocessed_path)
+        return
+    except TypeError:
+        logger.warning(
+            "DDR preprocessed payload is not JSON-serializable; falling back to cloudpickle at %s",
+            preprocessed_path,
+        )
+
+    with preprocessed_path.open("wb") as handle:
+        cloudpickle.dump(payload, handle)
+    logger.info("Saved DDR preprocessed data to %s (cloudpickle)", preprocessed_path)
+
+
 def run_ddr(
     *,
     manager: Any,
     data: Mapping[str, Any],
     processors: Mapping[str, Any],
-    accumulator: Any,
     schema: Any,
     extra_files: Optional[Sequence[str]] = None,
     tree_name: str = "Events",
+    preprocessed_data_path: Optional[str] = None,
+    save_preprocess_path: Optional[str] = None,
     preprocess_kwargs: Optional[Dict[str, Any]] = None,
     ddr_kwargs: Optional[Dict[str, Any]] = None,
 ) -> Any:
@@ -163,14 +259,26 @@ def run_ddr(
     preprocess_options = dict(preprocess_kwargs or {})
     tree_arg = preprocess_options.pop("tree_name", tree_name)
 
-    logger.info("Preprocessing DDR inputs (samples: %d)", len(data))
-    preprocessed_data = preprocess(
-        manager=manager,
-        data=data,
-        tree_name=tree_arg,
-        **preprocess_options,
-    )
-    logger.info("Preprocessing complete")
+    if preprocessed_data_path:
+        preprocessed_data = _load_preprocessed_mapping(preprocessed_data_path)
+        logger.info("Skipping preprocess(); using preprocessed payload from disk")
+        if save_preprocess_path:
+            _save_preprocessed_mapping(save_preprocess_path, preprocessed_data)
+    else:
+        logger.info("Preprocessing DDR inputs (samples: %d)", len(data))
+        preprocessed_data = preprocess(
+            manager=manager,
+            data=data,
+            tree_name=tree_arg,
+            **preprocess_options,
+        )
+        logger.info("Preprocessing complete")
+        if save_preprocess_path:
+            _save_preprocessed_mapping(
+                save_preprocess_path,
+                _validate_preprocessed_mapping(preprocessed_data, source="preprocess()"),
+            )
+
     filtered_data, summary = filter_preprocessed_data(preprocessed_data)
 
     if summary["bad_files_count"] > 0:
@@ -211,7 +319,6 @@ def run_ddr(
         manager,
         data=filtered_data,
         processors=processors,
-        accumulator=accumulator,
         schema=schema,
         **ddr_options,
     )

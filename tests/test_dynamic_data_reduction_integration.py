@@ -45,7 +45,6 @@ def test_run_ddr_raises_when_no_usable_files(monkeypatch):
             manager=object(),
             data={"Sample": {}},
             processors={"proc": object()},
-            accumulator=object(),
             schema=object(),
         )
 
@@ -82,7 +81,6 @@ def test_run_ddr_passes_filtered_data_to_ddr(monkeypatch):
         manager=object(),
         data={"Sample": {}},
         processors={"proc": object()},
-        accumulator=object(),
         schema=object(),
     )
 
