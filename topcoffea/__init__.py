@@ -32,7 +32,8 @@ def _ensure_not_vendored_in_topeft(package_root: Path) -> None:
     ``topeft/topcoffea`` for CI purposes. Loading the package from that path can
     silently mask the real ``topcoffea`` checkout, leading to mismatched
     versions. Fail fast with a helpful error so users reinstall the intended
-    sibling checkout on the ``ch_update_calcoffea`` branch.
+    sibling checkout on a coordinated ref documented in
+    ``docs/topeft_integration.md``.
     """
 
     resolved = package_root.resolve()
@@ -41,8 +42,9 @@ def _ensure_not_vendored_in_topeft(package_root: Path) -> None:
         raise RuntimeError(
             "Detected topcoffea imported from a vendored copy inside a topeft "
             "checkout. Please remove the embedded topeft/topcoffea directory "
-            "and install the real topcoffea from the ch_update_calcoffea "
-            "branch (e.g., `python -m pip install -e /path/to/topcoffea`)."
+            "and install the real topcoffea from a coordinated ref (release "
+            "tag or matched feature ref); see docs/topeft_integration.md "
+            "(e.g., `python -m pip install -e /path/to/topcoffea`)."
         )
 
 
@@ -129,4 +131,3 @@ def data_path(*parts: str) -> str:
     """Return an absolute path under ``topcoffea/data``."""
 
     return _path_from_package_root("data", *parts)
-
