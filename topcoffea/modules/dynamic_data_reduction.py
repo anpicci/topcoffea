@@ -256,7 +256,12 @@ def run_ddr(
     preprocess_kwargs: Optional[Dict[str, Any]] = None,
     ddr_kwargs: Optional[Dict[str, Any]] = None,
 ) -> Any:
-    """Preprocess inputs and run CoffeaDynamicDataReduction."""
+    """Preprocess inputs and run CoffeaDynamicDataReduction.
+
+    This helper is intended for coordinated topeft/topcoffea integration workflows;
+    its interface may evolve with coordinated refs and is not guaranteed to stay
+    frozen across unrelated version combinations.
+    """
 
     if preprocess is None or CoffeaDynamicDataReduction is None:
         raise ImportError(
