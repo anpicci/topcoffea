@@ -298,8 +298,12 @@ def run_ddr(
                 _validate_preprocessed_mapping(preprocessed_data, source="preprocess()"),
             )
 
+    print("\n\n\n\n\n\n\n")
+    # print("Raw preprocess output:", preprocessed_data)
     filtered_data, summary = filter_preprocessed_data(preprocessed_data)
-
+    # print("Filtered preprocess output:", filtered_data)
+    print("Preprocess summary:", summary)
+    
     if summary["bad_files_count"] > 0:
         logger.warning(
             "DDR preprocess marked %d/%d files unusable",
@@ -347,6 +351,10 @@ def run_ddr(
     if x509_proxy is not None:
         ddr_options["x509_proxy"] = x509_proxy
 
+    print("\n\n\n\n\n\n\n")
+    print("DDR options:", ddr_options)
+    print("DDR schema:", schema)
+    print("DDR processors:", processors)
     logger.info("Constructing CoffeaDynamicDataReduction (processors: %d)", len(processors))
     ddr = CoffeaDynamicDataReduction(
         manager,
@@ -354,7 +362,9 @@ def run_ddr(
         processors=processors,
         schema=schema,
         **ddr_options,
+        x509_proxy=x509_proxy
     )
+    # print("DDR object:", ddr)
     if environment_variables:
         env_updates = {str(key): str(value) for key, value in environment_variables.items()}
         ddr_env = getattr(ddr, "environment_variables", None)
@@ -368,7 +378,10 @@ def run_ddr(
             except Exception:
                 setattr(ddr, "environment_variables", dict(env_updates))
 
-    logger.info("Launching DDR compute()")
+    logger.info("\n\n\n\n\nLaunching DDR compute()")
+    print("Launching DDR compute()")
     result = ddr.compute()
+    print("DDR compute() finished")
     logger.info("DDR compute() finished")
+    print("\n\n\n\n\n\n\n")
     return result
