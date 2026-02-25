@@ -6,6 +6,10 @@ import json
 import logging
 import numbers
 import os
+import subprocess
+import sys
+import threading
+import time
 from pathlib import Path
 from typing import Any, Dict, Mapping, MutableMapping, Optional, Sequence, Tuple
 
@@ -27,6 +31,93 @@ __all__ = [
     "filter_preprocessed_data",
     "run_ddr",
 ]
+
+
+def _topeft_ddr_debug_enabled() -> bool:
+    value = os.environ.get("TOPEFT_DDR_DEBUG")
+    if value is None:
+        return False
+    return value.strip().lower() in {"1", "true", "yes", "on"}
+
+
+def _ddr_debug_emit(message: str) -> None:
+    if not _topeft_ddr_debug_enabled():
+        return
+    print(f"[TOPEFT_DDR_DEBUG] {message}", file=sys.stderr, flush=True)
+
+
+def _safe_manager_call(manager: Any, attr: str) -> Any:
+    value = getattr(manager, attr, None)
+    if callable(value):
+        try:
+            return value()
+        except Exception:
+            return "<call-failed>"
+    return value
+
+
+def _summarize_datasets(payload: Mapping[str, Mapping[str, Any]]) -> Tuple[int, int, Optional[int]]:
+    dataset_count = len(payload)
+    total_files = 0
+    total_entries = 0
+    saw_entries = False
+    for dataset_specs in payload.values():
+        files = dataset_specs.get("files")
+        if not isinstance(files, Mapping):
+            continue
+        total_files += len(files)
+        for file_info in files.values():
+            if not isinstance(file_info, Mapping):
+                continue
+            num_entries = file_info.get("num_entries")
+            if isinstance(num_entries, numbers.Real) and not isinstance(num_entries, bool):
+                total_entries += int(num_entries)
+                saw_entries = True
+    return dataset_count, total_files, total_entries if saw_entries else None
+
+
+def _snapshot_vine_status(*, manager_name: str, context: str) -> None:
+    if not _topeft_ddr_debug_enabled():
+        return
+    try:
+        completed = subprocess.run(
+            ["vine_status", "--verbose"],
+            check=False,
+            capture_output=True,
+            text=True,
+            timeout=25,
+        )
+    except Exception as exc:
+        _ddr_debug_emit(f"vine_status {context}: failed ({exc.__class__.__name__}: {exc})")
+        return
+
+    lines = (completed.stdout or "").splitlines()
+    manager_hits = [line.strip() for line in lines if manager_name in line]
+    category_hits = [
+        line.strip()
+        for line in lines
+        if "processing#" in line or "accumulating#" in line
+    ]
+
+    _ddr_debug_emit(
+        "vine_status "
+        f"context={context} "
+        f"manager={manager_name} "
+        f"rc={completed.returncode} "
+        f"manager_lines={len(manager_hits)} "
+        f"category_lines={len(category_hits)}"
+    )
+    for line in manager_hits[:5]:
+        _ddr_debug_emit(f"vine_status manager_line: {line}")
+    for line in category_hits[:10]:
+        _ddr_debug_emit(f"vine_status category_line: {line}")
+
+
+def _deferred_vine_status_snapshot(*, manager_name: str, context: str, delay_seconds: float) -> None:
+    if not _topeft_ddr_debug_enabled():
+        return
+    time.sleep(max(0.0, delay_seconds))
+    _snapshot_vine_status(manager_name=manager_name, context=context)
 
 
 def _normalize_file_entries(entry: Any) -> Tuple[Tuple[str, Optional[MutableMapping[str, Any]]], ...]:
@@ -270,6 +361,31 @@ def run_ddr(
         ) from _DDR_IMPORT_ERROR
 
     preprocess_options = dict(preprocess_kwargs or {})
+    manager_name = str(_safe_manager_call(manager, "name") or "<unknown>")
+    manager_port = _safe_manager_call(manager, "port")
+    manager_hungry = _safe_manager_call(manager, "hungry")
+    manager_empty = _safe_manager_call(manager, "empty")
+    manager_workers = _safe_manager_call(manager, "workers_connected")
+    if _topeft_ddr_debug_enabled():
+        input_datasets = len(data)
+        input_files = 0
+        for sample_specs in data.values():
+            files = sample_specs.get("files") if isinstance(sample_specs, Mapping) else None
+            if isinstance(files, Mapping):
+                input_files += len(files)
+        _ddr_debug_emit(
+            "run_ddr start "
+            f"manager={manager_name} "
+            f"port={manager_port} "
+            f"workers_connected={manager_workers} "
+            f"hungry={manager_hungry} "
+            f"empty={manager_empty} "
+            f"processors={len(processors)} "
+            f"input_datasets={input_datasets} "
+            f"input_files={input_files} "
+            f"preprocessed_data_path={preprocessed_data_path}"
+        )
+
     tree_arg = preprocess_options.pop("tree_name", tree_name)
     if x509_proxy is not None and "x509_proxy" not in preprocess_options:
         preprocess_options["x509_proxy"] = x509_proxy
@@ -298,11 +414,21 @@ def run_ddr(
                 _validate_preprocessed_mapping(preprocessed_data, source="preprocess()"),
             )
 
-    print("\n\n\n\n\n\n\n")
-    # print("Raw preprocess output:", preprocessed_data)
     filtered_data, summary = filter_preprocessed_data(preprocessed_data)
-    # print("Filtered preprocess output:", filtered_data)
-    print("Preprocess summary:", summary)
+    if _topeft_ddr_debug_enabled():
+        pre_ds, pre_files, pre_entries = _summarize_datasets(preprocessed_data)
+        filt_ds, filt_files, filt_entries = _summarize_datasets(filtered_data)
+        _ddr_debug_emit(
+            "run_ddr preprocess_summary "
+            f"datasets={pre_ds} "
+            f"files={pre_files} "
+            f"entries={pre_entries} "
+            f"filtered_datasets={filt_ds} "
+            f"filtered_files={filt_files} "
+            f"filtered_entries={filt_entries} "
+            f"bad_files={summary['bad_files_count']} "
+            f"dropped_datasets={len(summary['dropped_datasets'])}"
+        )
     
     if summary["bad_files_count"] > 0:
         logger.warning(
@@ -351,11 +477,24 @@ def run_ddr(
     if x509_proxy is not None:
         ddr_options["x509_proxy"] = x509_proxy
 
-    print("\n\n\n\n\n\n\n")
-    print("DDR options:", ddr_options)
-    print("DDR schema:", schema)
-    print("DDR processors:", processors)
     logger.info("Constructing CoffeaDynamicDataReduction (processors: %d)", len(processors))
+    if _topeft_ddr_debug_enabled():
+        filt_ds, filt_files, filt_entries = _summarize_datasets(filtered_data)
+        _ddr_debug_emit(
+            "run_ddr pre_compute "
+            f"manager={manager_name} "
+            f"port={manager_port} "
+            f"workers_connected={_safe_manager_call(manager, 'workers_connected')} "
+            f"hungry={_safe_manager_call(manager, 'hungry')} "
+            f"empty={_safe_manager_call(manager, 'empty')} "
+            f"processors={len(processors)} "
+            f"datasets={filt_ds} "
+            f"files={filt_files} "
+            f"entries={filt_entries} "
+            f"results_directory={ddr_options.get('results_directory')} "
+            f"x509_proxy={x509_proxy}"
+        )
+        _snapshot_vine_status(manager_name=manager_name, context="before-compute")
     ddr = CoffeaDynamicDataReduction(
         manager,
         data=filtered_data,
@@ -378,10 +517,26 @@ def run_ddr(
             except Exception:
                 setattr(ddr, "environment_variables", dict(env_updates))
 
-    logger.info("\n\n\n\n\nLaunching DDR compute()")
-    print("Launching DDR compute()")
+    deferred_snapshot = None
+    if _topeft_ddr_debug_enabled():
+        deferred_snapshot = threading.Thread(
+            target=_deferred_vine_status_snapshot,
+            kwargs={
+                "manager_name": manager_name,
+                "context": "during-compute+15s",
+                "delay_seconds": 15.0,
+            },
+            daemon=True,
+        )
+        deferred_snapshot.start()
+        _ddr_debug_emit("run_ddr launching compute()")
+
+    logger.info("Launching DDR compute()")
     result = ddr.compute()
-    print("DDR compute() finished")
     logger.info("DDR compute() finished")
-    print("\n\n\n\n\n\n\n")
+    if _topeft_ddr_debug_enabled():
+        if deferred_snapshot is not None and deferred_snapshot.is_alive():
+            deferred_snapshot.join(timeout=0.1)
+        _snapshot_vine_status(manager_name=manager_name, context="after-compute")
+        _ddr_debug_emit("run_ddr compute() finished")
     return result
