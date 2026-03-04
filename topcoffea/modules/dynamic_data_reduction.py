@@ -501,7 +501,6 @@ def run_ddr(
         processors=processors,
         schema=schema,
         **ddr_options,
-        x509_proxy=x509_proxy
     )
     # print("DDR object:", ddr)
     if environment_variables:
