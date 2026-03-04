@@ -40,6 +40,7 @@ def test_default_modules_pins():
     conda_packages = remote_environment.DEFAULT_MODULES["conda"]["packages"]
     assert "coffea=2025.7.3" in conda_packages
     assert "awkward=2.8.7" in conda_packages
+    assert "fsspec-xrootd" in conda_packages
     assert "pandas>=2.2,<2.3" in conda_packages
     assert "numpy>=2.3,<2.4" in conda_packages
     assert remote_environment.DEFAULT_MODULES["pip"] == ["topcoffea"]
@@ -188,5 +189,7 @@ def test_build_environment_spec_keeps_required_conda_pins_once(monkeypatch):
     conda_entries = spec["conda"]["packages"]
     pandas_entries = [dep for dep in conda_entries if dep.startswith("pandas")]
     numpy_entries = [dep for dep in conda_entries if dep.startswith("numpy")]
+    fsspec_entries = [dep for dep in conda_entries if dep.startswith("fsspec-xrootd")]
     assert len(pandas_entries) == 1
     assert len(numpy_entries) == 1
+    assert len(fsspec_entries) == 1

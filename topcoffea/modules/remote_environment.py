@@ -36,6 +36,7 @@ default_modules = {
             "hist=2.9.*",
             "ndcctools=7.15.14",
             "xrootd=5.8.4",
+            "fsspec-xrootd",
             "pyyaml=6.0.3",
             "dill=0.4.0",
             "pandas>=2.2,<2.3",
