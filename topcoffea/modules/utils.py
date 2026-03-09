@@ -410,6 +410,7 @@ def dump_dict_streaming(
     items: Iterable[Tuple[Any, Any]],
     *,
     protocol: Optional[int] = None,
+    clear_memo_interval: Optional[int] = None,
 ) -> None:
     """Stream ``(key, value)`` pairs to a gzip pickle that loads as a dict.
 
@@ -423,6 +424,13 @@ def dump_dict_streaming(
         raise ValueError(
             f"Unsupported pickle protocol {protocol}. "
             f"Expected [0, {pickle.HIGHEST_PROTOCOL}]."
+        )
+    if clear_memo_interval is not None and clear_memo_interval <= 0:
+        raise ValueError("clear_memo_interval must be a positive integer or None.")
+    if clear_memo_interval and protocol >= 4:
+        raise ValueError(
+            "clear_memo_interval requires pickle protocol <= 3. "
+            "Protocols >= 4 use MEMOIZE indexes that cannot be safely reset mid-stream."
         )
 
     if not out_name.endswith(".pkl.gz"):
@@ -438,10 +446,15 @@ def dump_dict_streaming(
             pickler.write(pickle.PROTO + bytes([protocol]))
         pickler.write(pickle.EMPTY_DICT)
 
+        written_items = 0
         for key, value in items:
             pickler.save(key)
             pickler.save(value)
             pickler.write(pickle.SETITEM)
+            written_items += 1
+            if clear_memo_interval and (written_items % clear_memo_interval == 0):
+                # Clear memoized references to keep streaming mode bounded in memory.
+                pickler.clear_memo()
 
         pickler.write(pickle.STOP)
         if protocol >= 4:

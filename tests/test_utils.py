@@ -65,6 +65,36 @@ class StreamingPickleTests(unittest.TestCase):
 
         self.assertEqual(loaded, dict(payload))
 
+    def test_dump_dict_streaming_roundtrip_with_memo_clearing(self):
+        payload = [("a", [1, 2, 3]), ("b", {"x": 2}), ("c", ("y", 4))]
+
+        with NamedTemporaryFile(suffix=".pkl.gz") as tmp:
+            with patch("builtins.print"):
+                dump_dict_streaming(
+                    tmp.name,
+                    payload,
+                    protocol=3,
+                    clear_memo_interval=1,
+                )
+
+            with gzip.open(tmp.name, "rb") as stream:
+                loaded = pickle.load(stream)
+
+        self.assertEqual(loaded, dict(payload))
+
+    def test_dump_dict_streaming_rejects_non_positive_memo_interval(self):
+        with self.assertRaises(ValueError):
+            dump_dict_streaming("dummy.pkl.gz", [], clear_memo_interval=0)
+
+    def test_dump_dict_streaming_rejects_memo_clearing_with_protocol_4_or_higher(self):
+        with self.assertRaises(ValueError):
+            dump_dict_streaming(
+                "dummy.pkl.gz",
+                [],
+                protocol=pickle.HIGHEST_PROTOCOL,
+                clear_memo_interval=1,
+            )
+
 
 if __name__ == "__main__":
     unittest.main()
