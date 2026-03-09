@@ -1,10 +1,15 @@
+import gzip
+import pickle
 import unittest
+from tempfile import NamedTemporaryFile
+from unittest.mock import patch
 
 from topcoffea.modules.utils import (
     cached_get_correlation_tag,
     cached_get_syst,
     cached_get_syst_lst,
     canonicalize_process_name,
+    dump_dict_streaming,
 )
 
 
@@ -45,6 +50,21 @@ class RateSystematicHelpersTests(unittest.TestCase):
     def test_cached_get_correlation_tag(self):
         self.assertEqual(cached_get_correlation_tag("pdf_scale", "ttH"), "gg")
         self.assertIsNone(cached_get_correlation_tag("charge_flips", "ttH"))
+
+
+class StreamingPickleTests(unittest.TestCase):
+    def test_dump_dict_streaming_roundtrip(self):
+        payload = [("a", 1), ("nested", {"x": [1, 2, 3]}), ("tuple", (4, 5))]
+
+        with NamedTemporaryFile(suffix=".pkl.gz") as tmp:
+            with patch("builtins.print"):
+                dump_dict_streaming(tmp.name, payload)
+
+            with gzip.open(tmp.name, "rb") as stream:
+                loaded = pickle.load(stream)
+
+        self.assertEqual(loaded, dict(payload))
+
 
 if __name__ == "__main__":
     unittest.main()

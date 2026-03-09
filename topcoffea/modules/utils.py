@@ -7,6 +7,7 @@ import pickle
 import re
 import time
 from functools import lru_cache
+from typing import Any, Iterable, Optional, Tuple
 
 try:  # pragma: no cover - exercised when cloudpickle is unavailable
     import cloudpickle
@@ -401,6 +402,51 @@ def dump_to_pkl(out_name,out_file):
     print(f"\nSaving output to {out_name}...")
     with gzip.open(out_name, "wb") as fout:
         cloudpickle.dump(out_file, fout)
+    print("Done.\n")
+
+
+def dump_dict_streaming(
+    out_name: str,
+    items: Iterable[Tuple[Any, Any]],
+    *,
+    protocol: Optional[int] = None,
+) -> None:
+    """Stream ``(key, value)`` pairs to a gzip pickle that loads as a dict.
+
+    This keeps memory bounded by serializing each dictionary item incrementally
+    instead of first materializing a full dictionary in memory.
+    """
+
+    if protocol is None:
+        protocol = pickle.HIGHEST_PROTOCOL
+    if not (0 <= protocol <= pickle.HIGHEST_PROTOCOL):
+        raise ValueError(
+            f"Unsupported pickle protocol {protocol}. "
+            f"Expected [0, {pickle.HIGHEST_PROTOCOL}]."
+        )
+
+    if not out_name.endswith(".pkl.gz"):
+        out_name = out_name + ".pkl.gz"
+
+    print(f"\nSaving output to {out_name}...")
+    with gzip.open(out_name, "wb") as fout:
+        pickler = pickle._Pickler(fout, protocol=protocol)
+        if protocol >= 4:
+            pickler.framer.start_framing()
+
+        if protocol >= 2:
+            pickler.write(pickle.PROTO + bytes([protocol]))
+        pickler.write(pickle.EMPTY_DICT)
+
+        for key, value in items:
+            pickler.save(key)
+            pickler.save(value)
+            pickler.write(pickle.SETITEM)
+
+        pickler.write(pickle.STOP)
+        if protocol >= 4:
+            pickler.framer.end_framing()
+
     print("Done.\n")
 
 
