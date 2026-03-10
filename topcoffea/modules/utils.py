@@ -416,6 +416,10 @@ def dump_dict_streaming(
 
     This keeps memory bounded by serializing each dictionary item incrementally
     instead of first materializing a full dictionary in memory.
+
+    When ``clear_memo_interval`` is enabled, use pickle protocol ``<=3``.
+    Protocols ``>=4`` rely on ``MEMOIZE`` indexes that cannot be safely reset
+    mid-stream.
     """
 
     if protocol is None:
