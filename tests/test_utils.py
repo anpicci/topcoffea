@@ -1,10 +1,15 @@
+import gzip
+import pickle
 import unittest
+from tempfile import NamedTemporaryFile
+from unittest.mock import patch
 
 from topcoffea.modules.utils import (
     cached_get_correlation_tag,
     cached_get_syst,
     cached_get_syst_lst,
     canonicalize_process_name,
+    dump_dict_streaming,
 )
 
 
@@ -45,6 +50,51 @@ class RateSystematicHelpersTests(unittest.TestCase):
     def test_cached_get_correlation_tag(self):
         self.assertEqual(cached_get_correlation_tag("pdf_scale", "ttH"), "gg")
         self.assertIsNone(cached_get_correlation_tag("charge_flips", "ttH"))
+
+
+class StreamingPickleTests(unittest.TestCase):
+    def test_dump_dict_streaming_roundtrip(self):
+        payload = [("a", 1), ("nested", {"x": [1, 2, 3]}), ("tuple", (4, 5))]
+
+        with NamedTemporaryFile(suffix=".pkl.gz") as tmp:
+            with patch("builtins.print"):
+                dump_dict_streaming(tmp.name, payload)
+
+            with gzip.open(tmp.name, "rb") as stream:
+                loaded = pickle.load(stream)
+
+        self.assertEqual(loaded, dict(payload))
+
+    def test_dump_dict_streaming_roundtrip_with_memo_clearing(self):
+        payload = [("a", [1, 2, 3]), ("b", {"x": 2}), ("c", ("y", 4))]
+
+        with NamedTemporaryFile(suffix=".pkl.gz") as tmp:
+            with patch("builtins.print"):
+                dump_dict_streaming(
+                    tmp.name,
+                    payload,
+                    protocol=3,
+                    clear_memo_interval=1,
+                )
+
+            with gzip.open(tmp.name, "rb") as stream:
+                loaded = pickle.load(stream)
+
+        self.assertEqual(loaded, dict(payload))
+
+    def test_dump_dict_streaming_rejects_non_positive_memo_interval(self):
+        with self.assertRaises(ValueError):
+            dump_dict_streaming("dummy.pkl.gz", [], clear_memo_interval=0)
+
+    def test_dump_dict_streaming_rejects_memo_clearing_with_protocol_4_or_higher(self):
+        with self.assertRaises(ValueError):
+            dump_dict_streaming(
+                "dummy.pkl.gz",
+                [],
+                protocol=pickle.HIGHEST_PROTOCOL,
+                clear_memo_interval=1,
+            )
+
 
 if __name__ == "__main__":
     unittest.main()
