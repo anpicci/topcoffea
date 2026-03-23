@@ -43,8 +43,6 @@ Use this page as the canonical hub for `topcoffea` documentation.
   shared-helper usage patterns.
 - [`topeft` integration](topeft_integration.md) – Use this when coordinated
   refs, namespace imports, or shared-environment expectations drift.
-- [README testing section](../README.md#testing-and-troubleshooting) – Landing
-  page pointer for users who started in the repo root.
 
 ## Release history
 
