@@ -22,7 +22,21 @@ end-to-end analysis instructions, operator workflows, or newcomer guidance.
 
 `docs/index.md` is the canonical documentation hub for `topcoffea`.
 
-## Install `topcoffea`
+## Documentation map
+
+- [Documentation index](docs/index.md) – canonical docs hub for `topcoffea`
+- [Quickstart](docs/quickstart.md) – installation and shared-library usage
+- [Testing and troubleshooting](docs/testing.md) – smoke tests, pytest entry
+  points, and common integration drift checks
+- [Configuration guide](docs/configuration.md) – workflow guide and configuration
+  reference for shared dataclasses and executors
+- [Tuple schema](docs/tuple_schema.md) – histogram tuple-key reference used by
+  downstream pickle outputs
+- [`topeft` integration](docs/topeft_integration.md) – cross-repo integration
+  guidance and exact `topeft` start links
+- [Release notes](docs/release_notes.md) – canonical release history
+
+## Minimal install smoke test
 
 Use an editable install so the namespace import (`import topcoffea`) resolves in
 the same way CI and downstream repositories expect:
@@ -46,60 +60,21 @@ pip install -e .
 python -c "import topcoffea"
 ```
 
-Rebuild the cached worker tarball with
-`python -m topcoffea.modules.remote_environment` after dependency updates so
-downstream workflows pick up the refreshed pins. When environment-policy wording
-in docs and implementation differ, follow `tests/test_environment_spec.py`.
+For the full installation/update guidance, environment notes, and shared-helper
+usage patterns, continue with [docs/quickstart.md](docs/quickstart.md).
+When environment-policy wording in docs and implementation differ, follow
+`tests/test_environment_spec.py`.
 
 Supported Coffea range: the 2025 release series, tested against
 `coffea==2025.7.3`.
 
-## Using with `topeft`
+## Testing and troubleshooting
 
-Projects such as [`topeft`](https://github.com/TopEFT/topeft) expect that the
-plain namespace import (`import topcoffea`) succeeds without extra
-`PYTHONPATH` tweaks. When testing a feature branch together with `topeft`, make
-sure the coordinated ref is installed in the environment that runs the analysis.
-For compatibility guidance, namespace-import smoke tests, and branch-pairing
-notes, see [docs/topeft_integration.md](docs/topeft_integration.md).
-
-For end-to-end workflows, plotting, and campaign-level instructions, use the
-specific `topeft` landing pages above rather than treating this repository as an
-operator manual.
-
-## Documentation
-
-- [Documentation index](docs/index.md) – canonical docs hub for `topcoffea`
-- [Quickstart](docs/quickstart.md) – installation and usage conventions for
-  shared helpers
-- [Configuration guide](docs/configuration.md) – workflow guide and configuration
-  reference for shared dataclasses and executors
-- [Tuple schema](docs/tuple_schema.md) – histogram tuple-key reference used by
-  downstream pickle outputs
-- [`topeft` integration](docs/topeft_integration.md) – cross-repo integration
-  guidance and exact `topeft` start links
-- [Release notes](docs/release_notes.md) – canonical release history
-
-## Testing
-
-Default `pytest` runs exclude integration tests (`addopts = -m "not integration"`).
-
-```bash
-# Default unit-ish suite (integration excluded by default)
-pytest -q
-
-# Equivalent explicit selector
-pytest -q -k "not taskvine"
-
-# Run all integration tests
-pytest -q -m integration
-
-# Run only TaskVine/Vine integration tests
-pytest -q -m integration -k "taskvine or vine"
-
-# Override TaskVine CLI timeout (seconds)
-TOPCOFFEA_TASKVINE_TIMEOUT_SECONDS=30 pytest -q -m integration tests/test_taskvine_cli.py::test_minimal_taskvine_cli
-```
+Use [docs/testing.md](docs/testing.md) for the canonical smoke-test commands,
+pytest selectors, and common coordinated-repo troubleshooting steps. Use
+[docs/topeft_integration.md](docs/topeft_integration.md) when the issue is
+specifically about coordinated refs, shared environments, or namespace-import
+drift with `topeft`.
 
 ## Histogram plotting
 

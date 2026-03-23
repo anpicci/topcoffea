@@ -12,6 +12,9 @@ and
 Use this page for compatibility and environment coordination rather than as the
 primary operator guide.
 
+If you only need install smoke tests or pytest entry points, start with
+[quickstart.md](quickstart.md) and [testing.md](testing.md) instead.
+
 ## Dependency and environment policy
 
 `topcoffea` and `topeft` share a dependency stack. The authoritative constraints

@@ -6,6 +6,8 @@ Use this page as the canonical hub for `topcoffea` documentation.
 
 - [Quickstart](quickstart.md) – **Start here** if you are maintaining shared
   helpers or installing `topcoffea` for downstream workflows.
+- [Testing and troubleshooting](testing.md) – First stop for smoke tests,
+  pytest entry points, import checks, and common failure modes.
 - Analyst / operator / newcomer: start in `topeft` with
   [`topeft/docs/workflow_and_yaml_hub.md`](https://github.com/TopEFT/topeft/blob/master/docs/workflow_and_yaml_hub.md),
   [`topeft/docs/quickstart_run2.md`](https://github.com/TopEFT/topeft/blob/master/docs/quickstart_run2.md),
@@ -35,12 +37,14 @@ Use this page as the canonical hub for `topcoffea` documentation.
 
 ## Testing / troubleshooting
 
-- [Quickstart](quickstart.md) – First stop for editable installs and smoke-test
-  setup.
+- [Testing and troubleshooting](testing.md) – Canonical smoke-test commands,
+  pytest selectors, and first-pass troubleshooting notes.
+- [Quickstart](quickstart.md) – Editable installs, environment setup, and
+  shared-helper usage patterns.
 - [`topeft` integration](topeft_integration.md) – Use this when coordinated
   refs, namespace imports, or shared-environment expectations drift.
-- [README testing section](../README.md#testing) – Current `pytest` entry
-  points and integration-test selectors.
+- [README testing section](../README.md#testing-and-troubleshooting) – Landing
+  page pointer for users who started in the repo root.
 
 ## Release history
 

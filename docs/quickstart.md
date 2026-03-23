@@ -9,6 +9,8 @@ and
 [`topeft/docs/taskvine_workflow.md`](https://github.com/TopEFT/topeft/blob/master/docs/taskvine_workflow.md).
 Use the sections below to look up the supporting `topcoffea` APIs referenced
 there. For a complete `topcoffea` docs map, see [index.md](index.md).
+For smoke tests and common troubleshooting, continue with
+[testing.md](testing.md).
 
 ## Install `topcoffea`
 
@@ -29,6 +31,9 @@ downstream entry points, then rebuild the TaskVine cache if workers rely on the
 packaged environment. Jet corrections now run eagerly without awkward virtual
 caches, so keep `awkward>=2` and coffea `>=0.7` in sync with the pinned
 environment to avoid AttributeError crashes when applying JEC/JER variations.
+If the editable install or namespace import does not behave as expected, use
+[testing.md](testing.md) for smoke checks and
+[topeft_integration.md](topeft_integration.md) for coordinated-repo debugging.
 
 ## Configure executors and options
 
