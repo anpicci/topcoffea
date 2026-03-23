@@ -4,6 +4,14 @@ Use compatible snapshots of both repositories (release tags or coordinated
 branches) in the same Python environment. Keep this page evergreen by avoiding
 hard-coded branch pairings in workflow docs.
 
+If you need end-to-end analysis instructions, start in `topeft` with
+[`topeft/docs/workflow_and_yaml_hub.md`](https://github.com/TopEFT/topeft/blob/master/docs/workflow_and_yaml_hub.md),
+[`topeft/docs/quickstart_run2.md`](https://github.com/TopEFT/topeft/blob/master/docs/quickstart_run2.md),
+and
+[`topeft/docs/taskvine_workflow.md`](https://github.com/TopEFT/topeft/blob/master/docs/taskvine_workflow.md).
+Use this page for compatibility and environment coordination rather than as the
+primary operator guide.
+
 ## Dependency and environment policy
 
 `topcoffea` and `topeft` share a dependency stack. The authoritative constraints

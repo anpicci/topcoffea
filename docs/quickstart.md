@@ -1,10 +1,14 @@
 # Quickstart
 
 This guide focuses on the `topcoffea` pieces that downstream analyses reuse.
-For end-to-end workflows (running processors, building datacards, and plotting)
-follow the [`topeft` documentation](https://github.com/TopEFT/topeft) and use the
-sections below to look up the supporting APIs referenced there. For a complete
-`topcoffea` docs map, see [index.md](index.md).
+For end-to-end workflows (running processors, building datacards, and plotting),
+start with
+[`topeft/docs/workflow_and_yaml_hub.md`](https://github.com/TopEFT/topeft/blob/master/docs/workflow_and_yaml_hub.md),
+[`topeft/docs/quickstart_run2.md`](https://github.com/TopEFT/topeft/blob/master/docs/quickstart_run2.md),
+and
+[`topeft/docs/taskvine_workflow.md`](https://github.com/TopEFT/topeft/blob/master/docs/taskvine_workflow.md).
+Use the sections below to look up the supporting `topcoffea` APIs referenced
+there. For a complete `topcoffea` docs map, see [index.md](index.md).
 
 ## Install `topcoffea`
 
@@ -47,7 +51,10 @@ validation.
 
 When developing both repositories together, use coordinated refs (release tags
 or matched feature branches) across repos. For current compatibility guidance,
-see [`topeft_integration.md`](topeft_integration.md). Refer to the `topeft`
-quickstart and workflow guides for authoritative run and plotting instructions;
-use this document to keep the underlying `topcoffea` installation and
-configuration consistent with those workflows.
+see [`topeft_integration.md`](topeft_integration.md). Refer to
+[`topeft/docs/workflow_and_yaml_hub.md`](https://github.com/TopEFT/topeft/blob/master/docs/workflow_and_yaml_hub.md)
+and
+[`topeft/docs/quickstart_run2.md`](https://github.com/TopEFT/topeft/blob/master/docs/quickstart_run2.md)
+for authoritative run and plotting instructions; use this document to keep the
+underlying `topcoffea` installation and configuration consistent with those
+workflows.

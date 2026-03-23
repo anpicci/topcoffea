@@ -1,27 +1,43 @@
 # topcoffea
 
-Tools that sit on top of coffea to facilitate CMS analyses. The repository is set up as a pip installable package. To install this package into a conda environment:
-```
+`topcoffea` is the shared-library layer used by TopEFT Coffea analyses. It
+packages common corrections, executor helpers, histogram utilities, and
+cross-repository integration surfaces.
+
+## Start here
+
+Use `topcoffea` as your starting point if you are maintaining shared helpers,
+working on corrections or executor internals, or coordinating integration
+between repositories. Use `topeft` as your starting point if you want
+end-to-end analysis instructions, operator workflows, or newcomer guidance.
+
+- Shared-library maintainer / integration developer: start with
+  [docs/index.md](docs/index.md), [Quickstart](docs/quickstart.md), and
+  [`topeft` integration](docs/topeft_integration.md).
+- Analyst / operator / newcomer: start in `topeft` with
+  [`topeft/docs/workflow_and_yaml_hub.md`](https://github.com/TopEFT/topeft/blob/master/docs/workflow_and_yaml_hub.md),
+  [`topeft/docs/quickstart_run2.md`](https://github.com/TopEFT/topeft/blob/master/docs/quickstart_run2.md),
+  and
+  [`topeft/docs/taskvine_workflow.md`](https://github.com/TopEFT/topeft/blob/master/docs/taskvine_workflow.md).
+
+`docs/index.md` is the canonical documentation hub for `topcoffea`.
+
+## Install `topcoffea`
+
+Use an editable install so the namespace import (`import topcoffea`) resolves in
+the same way CI and downstream repositories expect:
+
+```bash
 git clone https://github.com/TopEFT/topcoffea.git
 cd topcoffea
 pip install -e .
-
-# Confirm the namespace import that downstream projects rely on
 python -c "import topcoffea; topcoffea.modules.histEFT.HistEFT"
 ```
 
 The shared `coffea2025` Conda environment distributed with `topcoffea` and
 `topeft` tracks a TaskVine-ready dependency set (`coffea=2025.7.3`,
 `awkward=2.8.7`, `ndcctools`, `conda-pack`, etc.) so local installs mirror the
-remote cache. Environment policy is validated in-repo via tests with
-integration-focused checks: the tests enforce integration-intent pins, alignment
-between `environment.yml` and `pyproject.toml`, and a limited informational
-subset comparison against a `ttbarEFT` reference spec. Provision or refresh the
-environment with the commands below before running processors so downstream
-projects see the same toolchain that CI exercises. Jet corrections in
-`CorrectedJetsFactory` now follow coffea's cache-free upstream factory and avoid
-`ak.stack`/virtual arrays, which requires `awkward>=2.8` and coffea `>=0.7` to
-stay compatible with the eager smearing machinery:
+remote cache. Provision or refresh that environment before running processors:
 
 ```bash
 conda env create -f environment.yml  # or: conda env update -f environment.yml --prune
@@ -30,51 +46,39 @@ pip install -e .
 python -c "import topcoffea"
 ```
 
-Rebuild the cached worker tarball with `python -m
-topcoffea.modules.remote_environment` after pulling these changes so downstream
-workflows pick up the refreshed pins.
+Rebuild the cached worker tarball with
+`python -m topcoffea.modules.remote_environment` after dependency updates so
+downstream workflows pick up the refreshed pins. When environment-policy wording
+in docs and implementation differ, follow `tests/test_environment_spec.py`.
 
-Source of truth: when environment-policy wording in docs and implementation seem
-to differ, follow `tests/test_environment_spec.py`.
+Supported Coffea range: the 2025 release series, tested against
+`coffea==2025.7.3`.
 
-Supported Coffea range: the 2025 release series, tested against `coffea==2025.7.3`.
-
-## Using `topcoffea` from downstream projects
+## Using with `topeft`
 
 Projects such as [`topeft`](https://github.com/TopEFT/topeft) expect that the
 plain namespace import (`import topcoffea`) succeeds without extra
 `PYTHONPATH` tweaks. When testing a feature branch together with `topeft`, make
-sure the ref is installed in the environment that runs the analysis. For
-current compatibility guidance, see
-[the `topeft` integration guide](docs/topeft_integration.md).
+sure the coordinated ref is installed in the environment that runs the analysis.
+For compatibility guidance, namespace-import smoke tests, and branch-pairing
+notes, see [docs/topeft_integration.md](docs/topeft_integration.md).
 
-```bash
-# Option 1: install directly from GitHub
-python -m pip install --upgrade pip
-python -m pip install "git+https://github.com/TopEFT/topcoffea.git@<branch>"
+For end-to-end workflows, plotting, and campaign-level instructions, use the
+specific `topeft` landing pages above rather than treating this repository as an
+operator manual.
 
-# Option 2: editable install from a local checkout
-git clone https://github.com/TopEFT/topcoffea.git
-cd topcoffea
-git checkout <branch>
-python -m pip install -e .
+## Documentation
 
-# Smoke test to confirm the namespace import works for downstream users
-python -c "import topcoffea"
-```
-
-Coordinated `topeft` development refs require the editable install above so
-helpers like
-`topcoffea.modules.histEFT` and `topcoffea.scripts.make_html` resolve via plain
-attribute access. When developing both repositories side-by-side, activate the
-environment used for `topeft`, run `pip install -e ../topcoffea` from the
-`topeft` checkout, and re-run `python -c "import topcoffea"` (optionally adding
-`topcoffea.modules.histEFT.HistEFT` to the smoke test) before invoking the
-analysis scripts. This matches the CI installation check and guarantees that
-`import topcoffea` succeeds anywhere the sibling repository runs.
-
-Running the smoke test mirrors the CI check and guarantees that modules such as
-`topcoffea.modules.utils` can be imported by downstream repositories.
+- [Documentation index](docs/index.md) – canonical docs hub for `topcoffea`
+- [Quickstart](docs/quickstart.md) – installation and usage conventions for
+  shared helpers
+- [Configuration guide](docs/configuration.md) – workflow guide and configuration
+  reference for shared dataclasses and executors
+- [Tuple schema](docs/tuple_schema.md) – histogram tuple-key reference used by
+  downstream pickle outputs
+- [`topeft` integration](docs/topeft_integration.md) – cross-repo integration
+  guidance and exact `topeft` start links
+- [Release notes](docs/release_notes.md) – canonical release history
 
 ## Testing
 
@@ -118,47 +122,16 @@ plt.tight_layout()
 plt.show()
 ```
 
-
-## Documentation
-
-* [Documentation index](docs/index.md) – landing page for all `topcoffea`
-  documentation.
-* [Quickstart](docs/quickstart.md) – installation and executor conventions for
-  the `topcoffea` helpers shared across analyses.
-* [Configuration guide](docs/configuration.md) – details on `RunConfig`, YAML
-  overlays, and the dataclass helpers powering executors and jet corrections.
-* [Tuple schema](docs/tuple_schema.md) – description of the
-  `(variable, channel, application, sample, systematic)` histogram keys used in
-  pickle outputs.
-* [`topeft` integration](docs/topeft_integration.md) – branch coordination tips
-  for keeping shared helpers aligned.
-* [Release notes](docs/release_notes.md) – canonical change log.
-
-End-to-end run and plotting workflows now live in the
-[`topeft`](https://github.com/TopEFT/topeft) documentation; follow those guides
-for campaign-level instructions and use the `topcoffea` references above for API
-and configuration details.
-
-## Using with `topeft`
-
-Use coordinated refs (release tags or matched feature branches) across repos.
-For current compatibility guidance, see
-[`docs/topeft_integration.md`](docs/topeft_integration.md). The authoritative
-run and plotting instructions live in the `topeft` quickstart and workflow
-guides; refer to those documents for end-to-end steps and use the `topcoffea`
-references above to look up configuration and tuple-schema details.
-
 ## Remote environment cache
 
-`topcoffea.modules.remote_environment.get_environment` builds and caches
-Conda environments that include editable installs of `topcoffea`. The
-cache tarballs, named via `topcoffea.modules.env_cache`, live next to
-your workflow as `topeft-envs/env_spec_<hash>_edit_<commit>.tar.gz`, and
-the helper function accepts an `unstaged` policy of either `rebuild`
-(default) or `fail` when it detects local changes in editable
-checkouts. The cache key
-tracks editable `topeft` checkouts so modifying a local `topeft`
-repository forces an environment rebuild when `unstaged="rebuild"` is
-used. Pair the resulting tarball with TaskVine workers submitted via
+`topcoffea.modules.remote_environment.get_environment` builds and caches Conda
+environments that include editable installs of `topcoffea`. The cache tarballs,
+named via `topcoffea.modules.env_cache`, live next to your workflow as
+`topeft-envs/env_spec_<hash>_edit_<commit>.tar.gz`, and the helper function
+accepts an `unstaged` policy of either `rebuild` (default) or `fail` when it
+detects local changes in editable checkouts. The cache key tracks editable
+`topeft` checkouts so modifying a local `topeft` repository forces an
+environment rebuild when `unstaged="rebuild"` is used. Pair the resulting
+tarball with TaskVine workers submitted via
 [`vine_submit_workers`](https://github.com/cooperative-computing-lab/taskvine/blob/main/doc/man/vine_submit_workers.md)
 to avoid repeatedly transferring large environments.
