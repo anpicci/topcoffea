@@ -42,6 +42,10 @@ conda env update -f environment.yml --prune
 python -m topcoffea.modules.remote_environment
 ```
 
+For cache naming, archive location, and rebuild-policy details, continue with
+[remote_environment.md](remote_environment.md). This page stays focused on
+coordinated-repo expectations rather than general worker-cache operations.
+
 ## Keep the namespace import available
 
 `topeft` relies on plain namespace imports:

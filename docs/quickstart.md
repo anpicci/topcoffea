@@ -10,7 +10,9 @@ and
 Use the sections below to look up the supporting `topcoffea` APIs referenced
 there. For a complete `topcoffea` docs map, see [index.md](index.md).
 For smoke tests and common troubleshooting, continue with
-[testing.md](testing.md).
+[testing.md](testing.md). For TaskVine cache naming, rebuild policy, and
+downstream worker-environment handoff, continue with
+[remote_environment.md](remote_environment.md).
 
 ## Install `topcoffea`
 
@@ -31,6 +33,8 @@ downstream entry points, then rebuild the TaskVine cache if workers rely on the
 packaged environment. Jet corrections now run eagerly without awkward virtual
 caches, so keep `awkward>=2` and coffea `>=0.7` in sync with the pinned
 environment to avoid AttributeError crashes when applying JEC/JER variations.
+Detailed cache naming, rebuild policy, and TaskVine handoff live in
+[remote_environment.md](remote_environment.md).
 If the editable install or namespace import does not behave as expected, use
 [testing.md](testing.md) for smoke checks and
 [topeft_integration.md](topeft_integration.md) for coordinated-repo debugging.
@@ -63,3 +67,13 @@ and
 for authoritative run and plotting instructions; use this document to keep the
 underlying `topcoffea` installation and configuration consistent with those
 workflows.
+
+## Where to go next
+
+- Need smoke tests or first-pass troubleshooting: [testing.md](testing.md)
+- Need worker-cache or TaskVine environment details:
+  [remote_environment.md](remote_environment.md)
+- Need shared plotting examples rather than end-to-end analysis plotting:
+  [plotting.md](plotting.md)
+- Need coordinated-ref or shared-environment guidance:
+  [topeft_integration.md](topeft_integration.md)

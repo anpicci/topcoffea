@@ -28,6 +28,10 @@ end-to-end analysis instructions, operator workflows, or newcomer guidance.
 - [Quickstart](docs/quickstart.md) – installation and shared-library usage
 - [Testing and troubleshooting](docs/testing.md) – smoke tests, pytest entry
   points, and common integration drift checks
+- [Remote environment guide](docs/remote_environment.md) – TaskVine cache,
+  rebuild, and downstream worker-environment notes
+- [Plotting guide](docs/plotting.md) – shared plotting example surfaces and
+  boundaries with `topeft`
 - [Configuration guide](docs/configuration.md) – workflow guide and configuration
   reference for shared dataclasses and executors
 - [Tuple schema](docs/tuple_schema.md) – histogram tuple-key reference used by
@@ -48,25 +52,13 @@ pip install -e .
 python -c "import topcoffea; topcoffea.modules.histEFT.HistEFT"
 ```
 
-The shared `coffea2025` Conda environment distributed with `topcoffea` and
-`topeft` tracks a TaskVine-ready dependency set (`coffea=2025.7.3`,
-`awkward=2.8.7`, `ndcctools`, `conda-pack`, etc.) so local installs mirror the
-remote cache. Provision or refresh that environment before running processors:
-
-```bash
-conda env create -f environment.yml  # or: conda env update -f environment.yml --prune
-conda activate coffea2025
-pip install -e .
-python -c "import topcoffea"
-```
-
-For the full installation/update guidance, environment notes, and shared-helper
-usage patterns, continue with [docs/quickstart.md](docs/quickstart.md).
-When environment-policy wording in docs and implementation differ, follow
+For the full installation/update guidance, the shared `coffea2025`
+environment recipe, and shared-helper usage patterns, continue with
+[docs/quickstart.md](docs/quickstart.md). For TaskVine cache naming, rebuild
+policy, and downstream worker-environment handoff, continue with
+[docs/remote_environment.md](docs/remote_environment.md). When
+environment-policy wording in docs and implementation differ, follow
 `tests/test_environment_spec.py`.
-
-Supported Coffea range: the 2025 release series, tested against
-`coffea==2025.7.3`.
 
 ## Testing and troubleshooting
 
@@ -74,39 +66,6 @@ Use [docs/testing.md](docs/testing.md) for the canonical smoke-test commands,
 pytest selectors, and common coordinated-repo troubleshooting steps. Use
 [docs/topeft_integration.md](docs/topeft_integration.md) when the issue is
 specifically about coordinated refs, shared environments, or namespace-import
-drift with `topeft`.
-
-## Histogram plotting
-
-`topcoffea` supports modern `hist` objects only. The legacy Coffea histogram
-namespace is not supported.
-
-```python
-import hist
-import mplhep as hep
-import matplotlib.pyplot as plt
-
-h2 = hist.Hist(
-    hist.axis.Regular(20, -5, 5, name="x"),
-    hist.axis.Regular(20, -5, 5, name="y"),
-)
-h2.fill(x=[-1.0, 0.2, 1.7], y=[0.5, -0.8, 1.1])
-
-hep.hist2dplot(h2, xaxis="x")
-plt.tight_layout()
-plt.show()
-```
-
-## Remote environment cache
-
-`topcoffea.modules.remote_environment.get_environment` builds and caches Conda
-environments that include editable installs of `topcoffea`. The cache tarballs,
-named via `topcoffea.modules.env_cache`, live next to your workflow as
-`topeft-envs/env_spec_<hash>_edit_<commit>.tar.gz`, and the helper function
-accepts an `unstaged` policy of either `rebuild` (default) or `fail` when it
-detects local changes in editable checkouts. The cache key tracks editable
-`topeft` checkouts so modifying a local `topeft` repository forces an
-environment rebuild when `unstaged="rebuild"` is used. Pair the resulting
-tarball with TaskVine workers submitted via
-[`vine_submit_workers`](https://github.com/cooperative-computing-lab/taskvine/blob/main/doc/man/vine_submit_workers.md)
-to avoid repeatedly transferring large environments.
+drift with `topeft`. Use [docs/remote_environment.md](docs/remote_environment.md)
+for worker-cache rebuild questions and [docs/plotting.md](docs/plotting.md)
+for shared plotting examples.

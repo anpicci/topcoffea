@@ -18,6 +18,10 @@ Use this page as the canonical hub for `topcoffea` documentation.
 
 - [Quickstart](quickstart.md) – Installation and usage conventions for shared
   helpers.
+- [Remote environment guide](remote_environment.md) – Cache naming, rebuild
+  policy, and TaskVine worker-environment handoff.
+- [Plotting guide](plotting.md) – Shared plotting examples and the boundary
+  between `topcoffea` utilities and `topeft` operator workflows.
 - [Configuration guide](configuration.md) – Workflow guide for executor helpers,
   dataclasses, and configuration overlays.
 
@@ -34,6 +38,8 @@ Use this page as the canonical hub for `topcoffea` documentation.
   compatibility notes.
 - [Configuration guide](configuration.md) – Detailed configuration reference for
   shared helpers and executor settings.
+- [Plotting guide](plotting.md) – Minimal plotting example for modern `hist`
+  objects and links back to `topeft` for end-to-end plotting workflows.
 
 ## Testing / troubleshooting
 
@@ -41,6 +47,9 @@ Use this page as the canonical hub for `topcoffea` documentation.
   pytest selectors, and first-pass troubleshooting notes.
 - [Quickstart](quickstart.md) – Editable installs, environment setup, and
   shared-helper usage patterns.
+- [Remote environment guide](remote_environment.md) – First stop when TaskVine
+  workers appear to use stale environments or cached tarballs drift from local
+  checkouts.
 - [`topeft` integration](topeft_integration.md) – Use this when coordinated
   refs, namespace imports, or shared-environment expectations drift.
 
