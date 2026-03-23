@@ -1,25 +1,29 @@
 #! /usr/bin/env python
 import copy
-import json
+import glob
 import hashlib
+import json
+import logging
+import os
+import re
 import subprocess
 import sys
 import tempfile
-import logging
-import glob
-import os
-import re
 from pathlib import Path
 
 from importlib import metadata
 
-from typing import Dict, List, Optional
+from typing import Dict, List, Optional, Sequence
 
 from .env_cache import build_env_tarball_path, cache_glob_pattern
 
 logger = logging.getLogger(__name__)
 
 env_dir_cache = Path.cwd().joinpath(Path('topeft-envs'))
+
+PIP_NO_DEPS_FLAG = "--no-deps"
+REQUIRED_CONDA_PINS: Sequence[str] = ("pandas>=2.2,<2.3", "numpy>=2.3,<2.4")
+LOCAL_PIP_PACKAGE_NAMES = {"topcoffea", "topeft", "dynamic_data_reduction"}
 
 default_modules = {
     "conda": {
@@ -32,8 +36,11 @@ default_modules = {
             "hist=2.9.*",
             "ndcctools=7.15.14",
             "xrootd=5.8.4",
+            "fsspec-xrootd",
             "pyyaml=6.0.3",
             "dill=0.4.0",
+            "pandas>=2.2,<2.3",
+            "numpy>=2.3,<2.4",
         ],
     },
     "pip": [
@@ -57,6 +64,195 @@ pip_local_to_watch = {
 # Backwards-compatibility aliases retained for callers expecting uppercase names.
 DEFAULT_MODULES = default_modules
 PIP_LOCAL_TO_WATCH = pip_local_to_watch
+
+
+def _normalize_package_name(name: str) -> str:
+    return name.strip().replace("-", "_").lower()
+
+
+def _extract_pip_package_name(entry: str) -> Optional[str]:
+    token = str(entry).strip()
+    if not token or token.startswith("-"):
+        return None
+
+    if " @ " in token:
+        package_token = token.split(" @ ", 1)[0].strip()
+    else:
+        package_token = re.split(r"[!~=<>;\[\] ]", token, maxsplit=1)[0].strip()
+
+    if not package_token:
+        return None
+    return _normalize_package_name(package_token)
+
+
+def _extract_conda_package_name(entry: str) -> str:
+    token = str(entry).strip().strip("\"'")
+    token = token.split("::")[-1]
+    token = re.split(r"[!~=<> ]", token, maxsplit=1)[0].strip()
+    return _normalize_package_name(token)
+
+
+def _dedupe_ordered(entries: Sequence[str]) -> list[str]:
+    deduped: list[str] = []
+    seen: set[str] = set()
+    for entry in entries:
+        token = str(entry).strip()
+        if not token or token in seen:
+            continue
+        seen.add(token)
+        deduped.append(token)
+    return deduped
+
+
+def _ensure_conda_required_pins(packages: Sequence[str]) -> list[str]:
+    resolved = _dedupe_ordered(packages)
+    present = {_extract_conda_package_name(dep) for dep in resolved}
+    for pin in REQUIRED_CONDA_PINS:
+        if _extract_conda_package_name(pin) not in present:
+            resolved.append(pin)
+            present.add(_extract_conda_package_name(pin))
+    return resolved
+
+
+def _find_topcoffea_repo_root() -> Optional[Path]:
+    module_path = Path(__file__).resolve()
+    for candidate in module_path.parents:
+        has_project_metadata = (candidate / "pyproject.toml").is_file() or (candidate / "setup.py").is_file()
+        if has_project_metadata and (candidate / "topcoffea").is_dir():
+            return candidate
+    return None
+
+
+def _resolve_project_root_from_watch_token(token: str) -> Optional[Path]:
+    path = Path(str(token)).expanduser()
+    if not path.is_absolute():
+        return None
+
+    candidate = path.resolve()
+    if candidate.is_file():
+        candidate = candidate.parent
+
+    if candidate.name == "src" and (
+        (candidate.parent / "pyproject.toml").is_file() or (candidate.parent / "setup.py").is_file()
+    ):
+        return candidate.parent
+
+    if (candidate / "pyproject.toml").is_file() or (candidate / "setup.py").is_file():
+        return candidate
+
+    if (candidate.parent / "pyproject.toml").is_file() or (candidate.parent / "setup.py").is_file():
+        return candidate.parent
+
+    return None
+
+
+def _resolve_local_install_path(
+    package: str,
+    watch_tokens: Sequence[str],
+    editable_paths: dict[str, str],
+) -> Optional[Path]:
+    package_name = _normalize_package_name(package)
+
+    for token in watch_tokens:
+        resolved = _resolve_project_root_from_watch_token(token)
+        if resolved is not None:
+            return resolved
+
+    editable_path = editable_paths.get(package_name)
+    if editable_path:
+        resolved = _resolve_project_root_from_watch_token(str(Path(editable_path).resolve()))
+        if resolved is not None:
+            return resolved
+
+    topcoffea_repo = _find_topcoffea_repo_root()
+    if topcoffea_repo is None:
+        return None
+
+    if package_name == "topcoffea":
+        return topcoffea_repo
+
+    sibling_repo = topcoffea_repo.parent / package_name
+    if (sibling_repo / "pyproject.toml").is_file() or (sibling_repo / "setup.py").is_file():
+        return sibling_repo.resolve()
+
+    return None
+
+
+def resolve_local_pip_installs(
+    extra_pip_local: Optional[Dict[str, List[str]]],
+    *,
+    editable_paths: Optional[Dict[str, str]] = None,
+) -> Dict[str, str]:
+    normalized_editable = {
+        _normalize_package_name(name): str(path) for name, path in (editable_paths or {}).items()
+    }
+
+    requested: dict[str, list[str]] = {
+        "topcoffea": list(pip_local_to_watch.get("topcoffea", [])),
+    }
+    if extra_pip_local:
+        for package, watch_tokens in extra_pip_local.items():
+            requested[_normalize_package_name(str(package))] = [str(token) for token in watch_tokens]
+
+    installs: Dict[str, str] = {}
+    for package_name, watch_tokens in requested.items():
+        resolved_path = _resolve_local_install_path(
+            package_name,
+            watch_tokens,
+            normalized_editable,
+        )
+        if resolved_path is None:
+            logger.warning("Could not resolve local install path for package '%s'", package_name)
+            continue
+        installs[package_name] = f"{package_name} @ {resolved_path.resolve().as_uri()}"
+    return installs
+
+
+def _finalize_pip_entries(base_entries: Sequence[str], local_installs: Dict[str, str]) -> list[str]:
+    resolved_entries: list[str] = [PIP_NO_DEPS_FLAG]
+
+    for entry in base_entries:
+        token = str(entry).strip()
+        if not token or token == PIP_NO_DEPS_FLAG:
+            continue
+        package_name = _extract_pip_package_name(token)
+        if package_name and package_name in LOCAL_PIP_PACKAGE_NAMES and package_name in local_installs:
+            resolved_entries.append(local_installs[package_name])
+            continue
+        resolved_entries.append(token)
+
+    for install_entry in local_installs.values():
+        resolved_entries.append(install_entry)
+
+    return _dedupe_ordered(resolved_entries)
+
+
+def build_environment_spec(
+    *,
+    extra_conda: Optional[List[str]] = None,
+    extra_pip: Optional[List[str]] = None,
+    extra_pip_local: Optional[Dict[str, List[str]]] = None,
+    editable_paths: Optional[Dict[str, str]] = None,
+) -> tuple[Dict, Dict[str, List[str]]]:
+    spec = copy.deepcopy(default_modules)
+    spec_pip_local_to_watch = copy.deepcopy(pip_local_to_watch)
+    if extra_conda:
+        spec["conda"]["packages"].extend(extra_conda)
+    if extra_pip:
+        spec["pip"].extend(extra_pip)
+    if extra_pip_local:
+        spec_pip_local_to_watch.update(extra_pip_local)
+
+    spec["conda"]["packages"] = _ensure_conda_required_pins(spec["conda"]["packages"])
+    spec = _safe_check_current_env(spec)
+    spec = _ensure_installed_pip_package(spec, "topeft")
+
+    local_installs = resolve_local_pip_installs(
+        extra_pip_local,
+        editable_paths=editable_paths,
+    )
+    spec["pip"] = _finalize_pip_entries(spec["pip"], local_installs)
+    return spec, spec_pip_local_to_watch
 
 
 def _check_current_env(spec: Dict):
@@ -132,7 +328,8 @@ def _pip_freeze_entry(package: str) -> Optional[str]:
 
 
 def _ensure_installed_pip_package(spec: Dict, package: str) -> Dict:
-    if package in spec["pip"]:
+    package_name = _normalize_package_name(package)
+    if any(_extract_pip_package_name(entry) == package_name for entry in spec["pip"]):
         return spec
 
     try:
@@ -157,12 +354,23 @@ def _create_env(env_name: str, spec: Dict, force: bool = False):
     with tempfile.NamedTemporaryFile() as f:
         logger.info("Checking current conda environment")
         spec = _safe_check_current_env(spec)
-        packages_json = json.dumps(spec)
+        spec_for_poncho = copy.deepcopy(spec)
+        spec_for_poncho["pip"] = [
+            entry
+            for entry in spec_for_poncho.get("pip", [])
+            if str(entry).strip() != PIP_NO_DEPS_FLAG
+        ]
+        packages_json = json.dumps(spec_for_poncho)
         logger.info("base env specification:{}".format(packages_json))
         f.write(packages_json.encode())
         f.flush()
         logger.info("Creating environment {}".format(env_name))
-        subprocess.check_call(['poncho_package_create', f.name, env_name])
+        poncho_env = os.environ.copy()
+        poncho_env["PIP_NO_DEPS"] = "1"
+        subprocess.check_call(
+            ['poncho_package_create', f.name, env_name],
+            env=poncho_env,
+        )
         return env_name
 
 
@@ -255,21 +463,15 @@ def get_environment(
     # ensure cache directory exists
     Path(env_dir_cache).mkdir(parents=True, exist_ok=True)
 
-    spec = copy.deepcopy(default_modules)
-    spec_pip_local_to_watch = copy.deepcopy(pip_local_to_watch)
-    if extra_conda:
-        spec["conda"]["packages"].extend(extra_conda)
-    if extra_pip:
-        spec["pip"].extend(extra_pip)
-    if extra_pip_local:
-        spec["pip"].extend(extra_pip_local)
-        spec_pip_local_to_watch.update(extra_pip_local)
-
-    spec = _safe_check_current_env(spec)
-    spec = _ensure_installed_pip_package(spec, "topeft")
+    pip_paths = _find_local_pip()
+    spec, spec_pip_local_to_watch = build_environment_spec(
+        extra_conda=extra_conda,
+        extra_pip=extra_pip,
+        extra_pip_local=extra_pip_local,
+        editable_paths=pip_paths,
+    )
 
     packages_hash = hashlib.sha256(json.dumps(spec).encode()).hexdigest()[0:8]
-    pip_paths = _find_local_pip()
     pip_commits = _commits_local_pip(pip_paths, spec_pip_local_to_watch)
     pip_check = _compute_commit(pip_paths, pip_commits)
 

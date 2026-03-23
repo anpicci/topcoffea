@@ -242,6 +242,30 @@ def test_run_ddr_forwards_explicit_knobs(mock_preprocess, mock_ddr):
     assert result == {"accumulator": 2}
 
 
+@mock.patch.object(ddr_module, "CoffeaDynamicDataReduction")
+@mock.patch.object(ddr_module, "preprocess")
+def test_run_ddr_handles_x509_proxy_in_kwargs_and_explicit_arg(
+    mock_preprocess,
+    mock_ddr,
+):
+    mock_preprocess.return_value = _preprocessed_payload()
+    mock_ddr.return_value.compute.return_value = {"status": "ok"}
+
+    result = ddr_module.run_ddr(
+        manager=object(),
+        data={"sample": {"files": {"/path.root": {"object_path": "Events"}}}},
+        processors={"proc": object()},
+        schema="schema",
+        x509_proxy="proxy-from-arg.pem",
+        ddr_kwargs={"x509_proxy": "proxy-from-ddr-kwargs.pem"},
+    )
+
+    mock_ddr.assert_called_once()
+    ddr_kwargs = mock_ddr.call_args.kwargs
+    assert ddr_kwargs["x509_proxy"] == "proxy-from-arg.pem"
+    assert result == {"status": "ok"}
+
+
 @pytest.mark.integration
 @pytest.mark.taskvine
 def test_executor_cli_accepts_taskvine_executor(tmp_path):
