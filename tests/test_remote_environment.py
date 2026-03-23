@@ -26,10 +26,23 @@ def _create_topeft_repo(tmp_path: Path) -> Path:
     return repo
 
 
+def _create_ddr_repo(tmp_path: Path) -> Path:
+    repo = tmp_path / "dynamic_data_reduction"
+    (repo / "src").mkdir(parents=True)
+    (repo / "pyproject.toml").write_text(
+        "[project]\nname = 'dynamic_data_reduction'\nversion = '0.0.0'\n",
+        encoding="utf-8",
+    )
+    return repo
+
+
 def test_default_modules_pins():
     conda_packages = remote_environment.DEFAULT_MODULES["conda"]["packages"]
     assert "coffea=2025.7.3" in conda_packages
     assert "awkward=2.8.7" in conda_packages
+    assert "fsspec-xrootd" in conda_packages
+    assert "pandas>=2.2,<2.3" in conda_packages
+    assert "numpy>=2.3,<2.4" in conda_packages
     assert remote_environment.DEFAULT_MODULES["pip"] == ["topcoffea"]
 
 
@@ -117,3 +130,66 @@ def test_get_environment_reuses_cache(tmp_path, monkeypatch):
     assert calls[0]["force"] is False
     assert calls[1]["force"] is False
     assert Path(env_name_second).read_text().endswith("|reused")
+
+
+def test_build_environment_spec_uses_local_paths_and_no_deps(tmp_path, monkeypatch):
+    topeft_repo = _create_topeft_repo(tmp_path)
+    ddr_repo = _create_ddr_repo(tmp_path)
+
+    monkeypatch.setattr(remote_environment, "_safe_check_current_env", lambda spec: spec)
+    monkeypatch.setattr(
+        remote_environment,
+        "_ensure_installed_pip_package",
+        lambda spec, _package: spec,
+    )
+
+    spec, _watch_paths = remote_environment.build_environment_spec(
+        extra_pip_local={
+            "topeft": ["topeft", "setup.py"],
+            "dynamic_data_reduction": [
+                str(ddr_repo / "src"),
+                str(ddr_repo / "pyproject.toml"),
+            ],
+        },
+        editable_paths={
+            "topeft": str(topeft_repo),
+            "topcoffea": str(Path(__file__).resolve().parents[1]),
+        },
+    )
+
+    pip_entries = spec["pip"]
+    assert pip_entries[0] == "--no-deps"
+    assert any(entry.startswith("topeft @ file://") for entry in pip_entries)
+    assert any(
+        entry.startswith("dynamic_data_reduction @ file://")
+        for entry in pip_entries
+    )
+    assert any(entry.startswith("topcoffea @ file://") for entry in pip_entries)
+    assert not any(entry == "topeft" for entry in pip_entries)
+    assert not any(entry == "dynamic_data_reduction" for entry in pip_entries)
+
+
+def test_build_environment_spec_keeps_required_conda_pins_once(monkeypatch):
+    monkeypatch.setattr(remote_environment, "_safe_check_current_env", lambda spec: spec)
+    monkeypatch.setattr(
+        remote_environment,
+        "_ensure_installed_pip_package",
+        lambda spec, _package: spec,
+    )
+    monkeypatch.setattr(
+        remote_environment,
+        "resolve_local_pip_installs",
+        lambda *_args, **_kwargs: {},
+    )
+
+    spec, _watch_paths = remote_environment.build_environment_spec(
+        extra_conda=["pandas>=2.2,<2.3"],
+        editable_paths={},
+    )
+    conda_entries = spec["conda"]["packages"]
+    pandas_entries = [dep for dep in conda_entries if dep.startswith("pandas")]
+    numpy_entries = [dep for dep in conda_entries if dep.startswith("numpy")]
+    fsspec_entries = [dep for dep in conda_entries if dep.startswith("fsspec-xrootd")]
+    assert len(pandas_entries) == 1
+    assert len(numpy_entries) == 1
+    assert len(fsspec_entries) == 1

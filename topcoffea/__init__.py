@@ -5,6 +5,8 @@ from __future__ import annotations
 import importlib
 from importlib import import_module as _import_module
 from pathlib import Path
+import os
+import sys
 from types import ModuleType
 from typing import Any
 
@@ -51,32 +53,57 @@ def _ensure_not_vendored_in_topeft(package_root: Path) -> None:
 _ensure_not_vendored_in_topeft(_PACKAGE_ROOT)
 
 
+def _env_truthy(name: str) -> bool:
+    value = os.environ.get(name)
+    if value is None:
+        return False
+    return value.strip().lower() in {"1", "true", "yes", "on"}
+
+
 def _verify_numpy_pandas_abi() -> None:
-    """Fail fast when pandas/NumPy wheels are built against incompatible ABIs."""
+    """Verify runtime imports, with pandas ABI checks enabled only on demand."""
 
     try:  # pragma: no cover - environment guard
-        np = importlib.import_module("numpy")
-        pd = importlib.import_module("pandas")
+        importlib.import_module("numpy")
     except Exception as exc:
         raise RuntimeError(
-            "Failed to import numpy/pandas during topcoffea startup. Recreate the "
+            "Failed to import numpy during topcoffea startup. Recreate the "
             "coffea2025 environment and rebuild the TaskVine tarball before "
             "rerunning: `conda env update -f environment.yml --prune` followed "
             "by `python -m topcoffea.modules.remote_environment`."
         ) from exc
 
+    if not _env_truthy("TOPCOFFEA_IMPORT_CHECK_PANDAS"):
+        return
+
+    print(
+        "[topcoffea] Optional pandas ABI check enabled via "
+        "TOPCOFFEA_IMPORT_CHECK_PANDAS=1",
+        file=sys.stderr,
+        flush=True,
+    )
     try:  # pragma: no cover - environment guard
+        pd = importlib.import_module("pandas")
         from pandas import _libs as _pd_libs
 
         _ = _pd_libs.hashtable.Int64HashTable
+        print(
+            f"[topcoffea] Optional pandas ABI check passed (pandas {pd.__version__})",
+            file=sys.stderr,
+            flush=True,
+        )
     except Exception as exc:
+        print(
+            "[topcoffea] Optional pandas ABI check failed while "
+            "TOPCOFFEA_IMPORT_CHECK_PANDAS=1 is enabled.",
+            file=sys.stderr,
+            flush=True,
+        )
         raise RuntimeError(
-            "Detected a pandas/NumPy ABI mismatch (numpy "
-            f"{np.__version__}, pandas {pd.__version__}). Recreate the "
-            "coffea2025 environment and rebuild the TaskVine tarball: `conda env "
-            "update -f environment.yml --prune` followed by `python -m "
-            "topcoffea.modules.remote_environment`. Use the refreshed "
-            "environment for both futures and TaskVine runs."
+            "Optional pandas ABI check failed. Recreate the coffea2025 "
+            "environment and rebuild the TaskVine tarball: `conda env update -f "
+            "environment.yml --prune` followed by `python -m "
+            "topcoffea.modules.remote_environment`."
         ) from exc
 
 
