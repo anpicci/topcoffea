@@ -12,9 +12,9 @@ analysis metadata. Each histogram entry is stored under a five-element tuple:
 
 The order is fixed so downstream tools can safely parse tuple identifiers
 without inspecting histogram axes. Helpers in
-`topcoffea.modules.runner_output` (e.g. :func:`normalise_runner_output` and
-:func:`materialise_tuple_dict`) keep tuple-keyed payloads deterministic during
-serialisation, and :func:`topcoffea.modules.hist_utils.dump_to_pkl` uses these
+`topcoffea.modules.runner_output` (e.g. `normalise_runner_output(...)` and
+`materialise_tuple_dict(...)`) keep tuple-keyed payloads deterministic during
+serialisation, and `topcoffea.modules.hist_utils.dump_to_pkl(...)` uses these
 utilities automatically when writing pickle artifacts. Pickles remain
 structured as ``{tuple_key: HistEFT|Hist, ...}`` mappings—the tuple ordering is
 the only change. Downstream code can keep consuming the histogram objects
@@ -30,15 +30,15 @@ The refreshed `analysis/topeft_run2` entry points—including
 scripts that read TaskVine outputs—expect pickles that follow the 5-tuple
 layout verbatim. When producing output from a `topcoffea` runner (for example
 inside a TaskVine job launched by the new CLI helper) call
-:func:`topcoffea.modules.runner_output.normalise_runner_output` before writing
-the pickle or, more simply, rely on :func:`topcoffea.modules.hist_utils.dump_to_pkl`
+`topcoffea.modules.runner_output.normalise_runner_output(...)` before writing
+the pickle or, more simply, rely on `topcoffea.modules.hist_utils.dump_to_pkl(...)`
 which already invokes the normaliser and enforces the tuple layout. See
 `topcoffea/modules/runner_output.py` and `topcoffea/modules/hist_utils.py`.
 Plotting utilities (such as `make_cr_and_sr_plots.py` in `topeft`) should load
-the resulting artifact with :func:`topcoffea.modules.hist_utils.get_hist_from_pkl`
+the resulting artifact with `topcoffea.modules.hist_utils.get_hist_from_pkl(...)`
 to benefit from the same schema validation. When analysts need deterministic,
 serialisable summaries—e.g. the new plotting backends that iterate over tuple
-keys—use :func:`topcoffea.modules.runner_output.materialise_tuple_dict` to turn
+keys—use `topcoffea.modules.runner_output.materialise_tuple_dict(...)` to turn
 lazy histogram handles into ordered payloads before shipping them to plotting
 processes. See `topcoffea/modules/runner_output.py` and
 `topcoffea/modules/hist_utils.py`.
