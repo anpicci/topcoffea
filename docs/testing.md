@@ -5,10 +5,12 @@ Use this page for lightweight verification and first-pass troubleshooting in
 
 ## Start here
 
-- Need an editable-install or import smoke test: start with
+- Need installation/update steps or shared-helper usage context: start with
   [quickstart.md](quickstart.md)
 - Need coordinated-repo or environment-drift guidance: continue with
   [topeft_integration.md](topeft_integration.md)
+- Need worker-cache rebuild behavior or TaskVine archive semantics: continue
+  with [remote_environment.md](remote_environment.md)
 - Need the full docs map: go back to [index.md](index.md)
 
 ## Smoke tests
@@ -47,6 +49,7 @@ TOPCOFFEA_TASKVINE_TIMEOUT_SECONDS=30 pytest -q -m integration tests/test_taskvi
   use [topeft_integration.md](topeft_integration.md) to check coordinated refs,
   namespace-import expectations, and shared-environment assumptions.
 - Worker environments look stale after dependency updates:
-  rebuild the cached environment archive with
+  see [remote_environment.md](remote_environment.md) for cache naming and
+  rebuild behavior, then rebuild the cached environment archive with
   `python -m topcoffea.modules.remote_environment` and re-run the smoke tests
   above.

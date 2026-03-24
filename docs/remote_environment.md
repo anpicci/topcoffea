@@ -5,8 +5,9 @@ Use this page for the cached worker environment built by
 TaskVine-ready archives; it is not the main install quickstart or the
 coordinated-ref guide.
 
-If you need editable-install smoke tests first, start with
-[quickstart.md](quickstart.md). If you need cross-repo compatibility guidance,
+If you need installation/update steps or shared-helper usage context first,
+start with [quickstart.md](quickstart.md). If you need smoke tests, use
+[testing.md](testing.md). If you need cross-repo compatibility guidance,
 continue with [topeft_integration.md](topeft_integration.md).
 
 ## What the cache is for
