@@ -4,6 +4,17 @@ Use compatible snapshots of both repositories (release tags or coordinated
 branches) in the same Python environment. Keep this page evergreen by avoiding
 hard-coded branch pairings in workflow docs.
 
+If you need end-to-end analysis instructions, start in `topeft` with
+[`topeft/docs/workflow_and_yaml_hub.md`](https://github.com/TopEFT/topeft/blob/master/docs/workflow_and_yaml_hub.md),
+[`topeft/docs/quickstart_run2.md`](https://github.com/TopEFT/topeft/blob/master/docs/quickstart_run2.md),
+and
+[`topeft/docs/taskvine_workflow.md`](https://github.com/TopEFT/topeft/blob/master/docs/taskvine_workflow.md).
+Use this page for compatibility and environment coordination rather than as the
+primary operator guide.
+
+If you only need install smoke tests or pytest entry points, start with
+[quickstart.md](quickstart.md) and [testing.md](testing.md) instead.
+
 ## Dependency and environment policy
 
 `topcoffea` and `topeft` share a dependency stack. The authoritative constraints
@@ -30,6 +41,10 @@ archive so workers receive consistent wheels:
 conda env update -f environment.yml --prune
 python -m topcoffea.modules.remote_environment
 ```
+
+For cache naming, archive location, and rebuild-policy details, continue with
+[remote_environment.md](remote_environment.md). This page stays focused on
+coordinated-repo expectations rather than general worker-cache operations.
 
 ## Keep the namespace import available
 

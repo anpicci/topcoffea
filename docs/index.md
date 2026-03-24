@@ -1,13 +1,58 @@
 # topcoffea documentation map
 
-Use this page as the landing index for `topcoffea` documentation.
+Use this page as the canonical hub for `topcoffea` documentation.
 
-- [Quickstart](quickstart.md) – installation and usage conventions for shared
+## Start here
+
+- [Quickstart](quickstart.md) – **Start here** if you are maintaining shared
+  helpers or installing `topcoffea` for downstream workflows.
+- [Testing and troubleshooting](testing.md) – First stop for smoke tests,
+  pytest entry points, import checks, and common failure modes.
+- Analyst / operator / newcomer: start in `topeft` with
+  [`topeft/docs/workflow_and_yaml_hub.md`](https://github.com/TopEFT/topeft/blob/master/docs/workflow_and_yaml_hub.md),
+  [`topeft/docs/quickstart_run2.md`](https://github.com/TopEFT/topeft/blob/master/docs/quickstart_run2.md),
+  and
+  [`topeft/docs/taskvine_workflow.md`](https://github.com/TopEFT/topeft/blob/master/docs/taskvine_workflow.md).
+
+## Shared-library usage
+
+- [Quickstart](quickstart.md) – Installation and usage conventions for shared
   helpers.
-- [Configuration guide](configuration.md) – executor and dataclass
-  configuration details.
-- [Tuple schema](tuple_schema.md) – histogram tuple-key conventions and
+- [Remote environment guide](remote_environment.md) – Cache naming, rebuild
+  policy, and TaskVine worker-environment handoff.
+- [Plotting guide](plotting.md) – Shared plotting examples and the boundary
+  between `topcoffea` utilities and `topeft` operator workflows.
+- [Configuration guide](configuration.md) – Workflow guide for executor helpers,
+  dataclasses, and configuration overlays.
+
+## Cross-repo integration
+
+- [`topeft` integration](topeft_integration.md) – Coordinated refs, namespace
+  import expectations, and integration-specific notes.
+- End-to-end workflow owners should use the exact `topeft` landing pages listed
+  above rather than treating `topcoffea` as the operator guide.
+
+## Reference
+
+- [Tuple schema](tuple_schema.md) – Histogram tuple-key conventions and
   compatibility notes.
-- [`topeft` integration](topeft_integration.md) – branch-pairing and
-  cross-repository coordination notes.
-- [Release notes](release_notes.md) – canonical change log.
+- [Configuration guide](configuration.md) – Detailed configuration reference for
+  shared helpers and executor settings.
+- [Plotting guide](plotting.md) – Minimal plotting example for modern `hist`
+  objects and links back to `topeft` for end-to-end plotting workflows.
+
+## Testing / troubleshooting
+
+- [Testing and troubleshooting](testing.md) – Canonical smoke-test commands,
+  pytest selectors, and first-pass troubleshooting notes.
+- [Quickstart](quickstart.md) – Editable installs, environment setup, and
+  shared-helper usage patterns.
+- [Remote environment guide](remote_environment.md) – First stop when TaskVine
+  workers appear to use stale environments or cached tarballs drift from local
+  checkouts.
+- [`topeft` integration](topeft_integration.md) – Use this when coordinated
+  refs, namespace imports, or shared-environment expectations drift.
+
+## Release history
+
+- [Release notes](release_notes.md) – Canonical change log and release history.
