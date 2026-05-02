@@ -79,6 +79,8 @@ def run3_nanoV12_ak4puppi_jet_id(jets, year, working_point="tight"):
 
     multiplicity = jets.chMultiplicity + jets.neMultiplicity
     counts = ak.num(jets.eta)
+    # correctionlib does not support this jagged awkward input in the current env,
+    # so evaluate flat arrays and restore the original per-event jet structure.
     inputs = [
         ak.to_numpy(ak.flatten(jets.eta)),
         ak.to_numpy(ak.flatten(jets.chHEF)),

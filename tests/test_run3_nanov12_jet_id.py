@@ -61,6 +61,7 @@ def _jets():
                     "neMultiplicity": 6,
                 }
             ],
+            [],
         ]
     )
 
@@ -134,7 +135,7 @@ def test_run3_nanov12_jet_id_returns_boolean_mask_with_input_shape(monkeypatch):
 
     mask = osel.run3_nanoV12_ak4puppi_jet_id(_jets(), "2022")
 
-    assert ak.to_list(mask) == [[True, False], [True]]
-    assert ak.to_list(ak.num(mask)) == [2, 1]
+    assert ak.to_list(mask) == [[True, False], [True], []]
+    assert ak.to_list(ak.num(mask)) == [2, 1, 0]
     assert ak.to_numpy(ak.flatten(mask)).dtype == np.dtype("bool")
     assert ak.to_list(ak.Array(calls[0][-1])) == [16, 11, 11]
