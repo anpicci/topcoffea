@@ -72,6 +72,7 @@ def _skimmed_jets():
             [
                 {
                     "eta": 0.2,
+                    "chHEF": 0.5,
                     "jetId": 2,
                     "neHEF": 0.95,
                     "neEmEF": 0.95,
@@ -80,6 +81,7 @@ def _skimmed_jets():
                 },
                 {
                     "eta": 2.85,
+                    "chHEF": 0.0,
                     "jetId": 2,
                     "neHEF": 0.98,
                     "neEmEF": 0.95,
@@ -88,6 +90,7 @@ def _skimmed_jets():
                 },
                 {
                     "eta": 2.95,
+                    "chHEF": 0.0,
                     "jetId": 2,
                     "neHEF": 0.995,
                     "neEmEF": 0.95,
@@ -98,6 +101,7 @@ def _skimmed_jets():
             [
                 {
                     "eta": 3.2,
+                    "chHEF": 0.0,
                     "jetId": 2,
                     "neHEF": 0.4,
                     "neEmEF": 0.39,
@@ -106,6 +110,7 @@ def _skimmed_jets():
                 },
                 {
                     "eta": 3.3,
+                    "chHEF": 0.0,
                     "jetId": 2,
                     "neHEF": 0.4,
                     "neEmEF": 0.41,
@@ -114,6 +119,7 @@ def _skimmed_jets():
                 },
                 {
                     "eta": -0.4,
+                    "chHEF": 0.0,
                     "jetId": 0,
                     "neHEF": 0.0,
                     "neEmEF": 0.0,
@@ -218,12 +224,31 @@ def test_run3_nanov12_jet_id_missing_multiplicities_uses_tight_recipe(monkeypatc
     assert ak.to_numpy(ak.flatten(mask)).dtype == np.dtype("bool")
 
 
+def test_run3_nanov12_jet_id_skimmed_fallback_still_validates_year():
+    with pytest.raises(ValueError, match="only defined for years"):
+        osel.run3_nanoV12_ak4puppi_jet_id(_skimmed_jets(), "2099")
+
+
+def test_run3_nanov12_jet_id_missing_one_multiplicity_uses_recipe():
+    skimmed_jets = _skimmed_jets()
+    jets = ak.with_field(
+        skimmed_jets,
+        ak.ones_like(skimmed_jets.eta),
+        "chMultiplicity",
+    )
+
+    mask = osel.run3_nanoV12_ak4puppi_jet_id(jets, "2022")
+
+    assert ak.to_list(mask) == [[True, True, False], [True, False, False], []]
+
+
 def test_run3_nanov12_jet_id_missing_multiplicities_uses_tight_lepton_veto_recipe():
     jets = ak.Array(
         [
             [
                 {
                     "eta": 0.2,
+                    "chHEF": 0.5,
                     "jetId": 2,
                     "neHEF": 0.0,
                     "neEmEF": 0.0,
@@ -232,6 +257,7 @@ def test_run3_nanov12_jet_id_missing_multiplicities_uses_tight_lepton_veto_recip
                 },
                 {
                     "eta": 0.3,
+                    "chHEF": 0.5,
                     "jetId": 2,
                     "neHEF": 0.0,
                     "neEmEF": 0.0,
@@ -240,6 +266,7 @@ def test_run3_nanov12_jet_id_missing_multiplicities_uses_tight_lepton_veto_recip
                 },
                 {
                     "eta": 0.4,
+                    "chHEF": 0.5,
                     "jetId": 2,
                     "neHEF": 0.0,
                     "neEmEF": 0.0,
@@ -248,6 +275,7 @@ def test_run3_nanov12_jet_id_missing_multiplicities_uses_tight_lepton_veto_recip
                 },
                 {
                     "eta": 2.8,
+                    "chHEF": 0.0,
                     "jetId": 2,
                     "neHEF": 0.98,
                     "neEmEF": 0.0,
@@ -266,7 +294,20 @@ def test_run3_nanov12_jet_id_missing_multiplicities_uses_tight_lepton_veto_recip
 
 
 def test_run3_nanov12_jet_id_missing_multiplicities_requires_recipe_fields():
-    jets = ak.Array([[{"eta": 0.1, "neHEF": 0.1, "neEmEF": 0.1}]])
+    jets = ak.Array(
+        [
+            [
+                {
+                    "eta": 0.1,
+                    "chHEF": 0.5,
+                    "neHEF": 0.1,
+                    "chEmEF": 0.1,
+                    "neEmEF": 0.1,
+                    "muEF": 0.1,
+                }
+            ]
+        ]
+    )
 
     with pytest.raises(ValueError, match="Missing recipe fields: jetId"):
         osel.run3_nanoV12_ak4puppi_jet_id(jets, "2022")
