@@ -66,6 +66,66 @@ def _jets():
     )
 
 
+def _skimmed_jets():
+    return ak.Array(
+        [
+            [
+                {
+                    "eta": 0.2,
+                    "jetId": 2,
+                    "neHEF": 0.95,
+                    "neEmEF": 0.95,
+                    "muEF": 0.79,
+                    "chEmEF": 0.79,
+                },
+                {
+                    "eta": 2.85,
+                    "jetId": 2,
+                    "neHEF": 0.98,
+                    "neEmEF": 0.95,
+                    "muEF": 0.0,
+                    "chEmEF": 0.0,
+                },
+                {
+                    "eta": 2.95,
+                    "jetId": 2,
+                    "neHEF": 0.995,
+                    "neEmEF": 0.95,
+                    "muEF": 0.0,
+                    "chEmEF": 0.0,
+                },
+            ],
+            [
+                {
+                    "eta": 3.2,
+                    "jetId": 2,
+                    "neHEF": 0.4,
+                    "neEmEF": 0.39,
+                    "muEF": 0.0,
+                    "chEmEF": 0.0,
+                },
+                {
+                    "eta": 3.3,
+                    "jetId": 2,
+                    "neHEF": 0.4,
+                    "neEmEF": 0.41,
+                    "muEF": 0.0,
+                    "chEmEF": 0.0,
+                },
+                {
+                    "eta": -0.4,
+                    "jetId": 0,
+                    "neHEF": 0.0,
+                    "neEmEF": 0.0,
+                    "muEF": 0.0,
+                    "chEmEF": 0.0,
+                },
+            ],
+            [],
+        ]
+    )
+
+
 @pytest.mark.parametrize(
     ("year", "payload_dir"),
     [
@@ -90,6 +150,7 @@ def test_run3_nanov12_jet_id_payload_dispatch(monkeypatch, year, payload_dir):
     osel.run3_nanoV12_ak4puppi_jet_id(_jets(), year)
 
     assert paths == [f"data/POG/JME/{payload_dir}/jetid.json.gz"]
+    assert len(calls) == 1
 
 
 @pytest.mark.parametrize(
@@ -118,7 +179,7 @@ def test_run3_nanov12_jet_id_working_point_mapping(monkeypatch, working_point, c
 def test_run3_nanov12_jet_id_requires_all_fields():
     jets = ak.Array([[{"eta": 0.1, "chHEF": 0.5}]])
 
-    with pytest.raises(ValueError, match="Missing: .*neHEF"):
+    with pytest.raises(ValueError, match="Missing correctionlib fields: .*neHEF"):
         osel.run3_nanoV12_ak4puppi_jet_id(jets, "2022")
 
 
@@ -139,3 +200,86 @@ def test_run3_nanov12_jet_id_returns_boolean_mask_with_input_shape(monkeypatch):
     assert ak.to_list(ak.num(mask)) == [2, 1, 0]
     assert ak.to_numpy(ak.flatten(mask)).dtype == np.dtype("bool")
     assert ak.to_list(ak.Array(calls[0][-1])) == [16, 11, 11]
+
+
+def test_run3_nanov12_jet_id_missing_multiplicities_uses_tight_recipe(monkeypatch):
+    def _raise_if_correctionlib_is_used(path):
+        raise AssertionError("skimmed fallback must not use correctionlib placeholders")
+
+    monkeypatch.setattr(
+        osel.correctionlib.CorrectionSet,
+        "from_file",
+        _raise_if_correctionlib_is_used,
+    )
+
+    mask = osel.run3_nanoV12_ak4puppi_jet_id(_skimmed_jets(), "2022")
+
+    assert ak.to_list(mask) == [[True, True, False], [True, False, False], []]
+    assert ak.to_numpy(ak.flatten(mask)).dtype == np.dtype("bool")
+
+
+def test_run3_nanov12_jet_id_missing_multiplicities_uses_tight_lepton_veto_recipe():
+    jets = ak.Array(
+        [
+            [
+                {
+                    "eta": 0.2,
+                    "jetId": 2,
+                    "neHEF": 0.0,
+                    "neEmEF": 0.0,
+                    "muEF": 0.79,
+                    "chEmEF": 0.79,
+                },
+                {
+                    "eta": 0.3,
+                    "jetId": 2,
+                    "neHEF": 0.0,
+                    "neEmEF": 0.0,
+                    "muEF": 0.8,
+                    "chEmEF": 0.79,
+                },
+                {
+                    "eta": 0.4,
+                    "jetId": 2,
+                    "neHEF": 0.0,
+                    "neEmEF": 0.0,
+                    "muEF": 0.79,
+                    "chEmEF": 0.8,
+                },
+                {
+                    "eta": 2.8,
+                    "jetId": 2,
+                    "neHEF": 0.98,
+                    "neEmEF": 0.0,
+                    "muEF": 0.99,
+                    "chEmEF": 0.99,
+                },
+            ]
+        ]
+    )
+
+    mask = osel.run3_nanoV12_ak4puppi_jet_id(
+        jets, "2022", working_point="tight_lepton_veto"
+    )
+
+    assert ak.to_list(mask) == [[True, False, False, True]]
+
+
+def test_run3_nanov12_jet_id_missing_multiplicities_requires_recipe_fields():
+    jets = ak.Array([[{"eta": 0.1, "neHEF": 0.1, "neEmEF": 0.1}]])
+
+    with pytest.raises(ValueError, match="Missing recipe fields: jetId"):
+        osel.run3_nanoV12_ak4puppi_jet_id(jets, "2022")
+
+
+def test_existing_flag_based_tight_jet_selection_is_unchanged():
+    mask = osel.is_tight_jet(
+        np.array([29.0, 31.0, 31.0, 31.0]),
+        np.array([0.1, 0.1, 2.5, 0.1]),
+        np.array([2, 1, 2, 2]),
+        pt_cut=30.0,
+        eta_cut=2.4,
+        id_cut=1,
+    )
+
+    assert mask.tolist() == [False, False, False, True]

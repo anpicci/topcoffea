@@ -30,6 +30,27 @@ _RUN3_NANOV12_JET_ID_FIELDS = (
     "neMultiplicity",
 )
 
+_RUN3_NANOV12_JET_ID_MULTIPLICITY_FIELDS = (
+    "chMultiplicity",
+    "neMultiplicity",
+)
+
+_RUN3_NANOV12_JET_ID_TIGHT_RECIPE_FIELDS = (
+    "eta",
+    "jetId",
+    "neHEF",
+    "neEmEF",
+)
+
+_RUN3_NANOV12_JET_ID_TIGHT_LEPTON_VETO_RECIPE_FIELDS = (
+    "eta",
+    "jetId",
+    "neHEF",
+    "neEmEF",
+    "muEF",
+    "chEmEF",
+)
+
 
 def is_tight_jet(pt, eta, jet_id, pt_cut, eta_cut, id_cut):
     mask = ((pt>pt_cut) & (abs(eta)<eta_cut) & (jet_id>id_cut))
@@ -60,20 +81,40 @@ def _run3_nanoV12_jet_id_key(working_point):
 
 
 def _require_run3_nanoV12_jet_id_fields(jets):
-    fields = set(ak.fields(jets))
-    missing = [field for field in _RUN3_NANOV12_JET_ID_FIELDS if field not in fields]
+    missing = _missing_run3_nanoV12_jet_id_fields(jets, _RUN3_NANOV12_JET_ID_FIELDS)
     if missing:
-        raise ValueError(
-            "Run3 NanoV12 AK4PUPPI JetID requires jet fields: "
-            f"{', '.join(_RUN3_NANOV12_JET_ID_FIELDS)}. Missing: {', '.join(missing)}."
+        raise ValueError(_run3_nanoV12_jet_id_missing_fields_message(jets, missing, ()))
+
+
+def _missing_run3_nanoV12_jet_id_fields(jets, required_fields):
+    fields = set(ak.fields(jets))
+    return [field for field in required_fields if field not in fields]
+
+
+def _run3_nanoV12_jet_id_missing_fields_message(jets, correctionlib_missing, recipe_missing):
+    available = ak.fields(jets)
+    parts = [
+        "Run3 NanoV12 AK4PUPPI JetID could not be evaluated.",
+        "Correctionlib path requires jet fields: "
+        f"{', '.join(_RUN3_NANOV12_JET_ID_FIELDS)}.",
+        f"Missing correctionlib fields: {', '.join(correctionlib_missing) or 'none'}.",
+    ]
+    if recipe_missing:
+        parts.extend(
+            [
+                "Skim-compatible jetId recipe fallback was attempted because the "
+                "charged/neutral multiplicity fields are unavailable, but it also "
+                "requires recipe fields.",
+                f"Missing recipe fields: {', '.join(recipe_missing)}.",
+            ]
         )
+    else:
+        parts.append("Skim-compatible jetId recipe fallback was not applicable.")
+    parts.append(f"Available fields: {', '.join(available) or 'none'}.")
+    return " ".join(parts)
 
 
-def run3_nanoV12_ak4puppi_jet_id(jets, year, working_point="tight"):
-    """Return the Run3 NanoV12 AK4PUPPI JetID mask for the requested working point."""
-    _require_run3_nanoV12_jet_id_fields(jets)
-
-    correction_key = _run3_nanoV12_jet_id_key(working_point)
+def _run3_nanoV12_ak4puppi_jet_id_correctionlib(jets, year, correction_key):
     payload_path = _run3_nanoV12_jet_id_payload_path(year)
     evaluator = correctionlib.CorrectionSet.from_file(payload_path)[correction_key]
 
@@ -94,3 +135,61 @@ def run3_nanoV12_ak4puppi_jet_id(jets, year, working_point="tight"):
     ]
     jet_id_flat = evaluator.evaluate(*inputs)
     return ak.unflatten(np.asarray(jet_id_flat, dtype=bool), counts)
+
+
+def _run3_nanoV12_ak4puppi_jet_id_recipe(jets, working_point):
+    abs_eta = abs(jets.eta)
+    tight_bit = (jets.jetId & (1 << 1)) != 0
+
+    # NanoV12 skims can preserve the packed jetId decision while dropping the
+    # charged/neutral multiplicities used by the correctionlib payload. Do not
+    # substitute nConstituents: it is not equivalent to the separate charged and
+    # neutral multiplicities, and payload probes show those inputs affect output.
+    tight = tight_bit & (
+        (abs_eta <= 2.7)
+        | ((abs_eta > 2.7) & (abs_eta <= 3.0) & (jets.neHEF < 0.99))
+        | ((abs_eta > 3.0) & (jets.neEmEF < 0.4))
+    )
+
+    if working_point == "tight":
+        return tight
+
+    return tight & (
+        (abs_eta > 2.7)
+        | ((jets.muEF < 0.8) & (jets.chEmEF < 0.8))
+    )
+
+
+def _run3_nanoV12_jet_id_recipe_fields(working_point):
+    if working_point == "tight":
+        return _RUN3_NANOV12_JET_ID_TIGHT_RECIPE_FIELDS
+    return _RUN3_NANOV12_JET_ID_TIGHT_LEPTON_VETO_RECIPE_FIELDS
+
+
+def run3_nanoV12_ak4puppi_jet_id(jets, year, working_point="tight"):
+    """Return the Run3 NanoV12 AK4PUPPI JetID mask for the requested working point."""
+    correction_key = _run3_nanoV12_jet_id_key(working_point)
+    correctionlib_missing = _missing_run3_nanoV12_jet_id_fields(
+        jets, _RUN3_NANOV12_JET_ID_FIELDS
+    )
+    if not correctionlib_missing:
+        return _run3_nanoV12_ak4puppi_jet_id_correctionlib(jets, year, correction_key)
+
+    missing_multiplicity = [
+        field for field in _RUN3_NANOV12_JET_ID_MULTIPLICITY_FIELDS
+        if field in correctionlib_missing
+    ]
+    if set(missing_multiplicity) == set(_RUN3_NANOV12_JET_ID_MULTIPLICITY_FIELDS):
+        recipe_fields = _run3_nanoV12_jet_id_recipe_fields(working_point)
+        recipe_missing = _missing_run3_nanoV12_jet_id_fields(jets, recipe_fields)
+        if not recipe_missing:
+            return _run3_nanoV12_ak4puppi_jet_id_recipe(jets, working_point)
+        raise ValueError(
+            _run3_nanoV12_jet_id_missing_fields_message(
+                jets, correctionlib_missing, recipe_missing
+            )
+        )
+
+    raise ValueError(
+        _run3_nanoV12_jet_id_missing_fields_message(jets, correctionlib_missing, ())
+    )
