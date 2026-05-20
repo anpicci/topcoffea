@@ -4,6 +4,7 @@ from functools import reduce
 import awkward
 import numpy
 
+from topcoffea.modules.CorrectedJetsFactory import CorrectedJetsFactory
 from topcoffea.modules.JECStack import JECStack
 
 
@@ -140,7 +141,15 @@ class Type1CorrectedMETFactory(object):
     }
     _delta_unc_fields = ("UnClusteredEnergyDeltaX", "UnClusteredEnergyDeltaY")
 
-    def __init__(self, name_map, jec_stack, run=None, unclustered_mode="auto"):
+    def __init__(
+        self,
+        name_map,
+        jec_stack,
+        run=None,
+        suppress_forward_eta_stochastic_jer=False,
+        unclustered_mode="auto",
+        corrected_jets_factory_cls=CorrectedJetsFactory,
+    ):
         if not isinstance(jec_stack, JECStack):
             if not (
                 hasattr(jec_stack, "corrections")
@@ -161,7 +170,9 @@ class Type1CorrectedMETFactory(object):
         self.name_map = name_map
         self.jec_stack = jec_stack
         self.run = run
+        self.suppress_forward_eta_stochastic_jer = suppress_forward_eta_stochastic_jer
         self.unclustered_mode = unclustered_mode
+        self.corrected_jets_factory_cls = corrected_jets_factory_cls
 
     def _get_unclustered_mode(self, stored_met):
         if self.unclustered_mode != "auto":
@@ -210,19 +221,53 @@ class Type1CorrectedMETFactory(object):
         name_map["JetA"] = self.name_map["CorrT1JetArea"]
         return name_map
 
-    def _prepare_jets_for_jec(self, jets):
-        prepared = copy(jets)
-        prepared["pt_type1Raw"] = (
-            jets[self.name_map["JetPt"]] * (1.0 - jets[self.name_map["JetRawFactor"]])
-        )
-        if _has_field(jets, "mass") and _has_field(jets, "mass_raw"):
-            prepared["mass_type1Raw"] = jets["mass_raw"]
+    def _jet_raw_pt(self, raw_jets):
+        return raw_jets[self.name_map["JetPt"]] * (1.0 - raw_jets[self.name_map["JetRawFactor"]])
+
+    def _prepare_jets_for_jec(self, raw_jets):
+        prepared = awkward.with_field(raw_jets, self._jet_raw_pt(raw_jets), "pt_type1Raw")
+        mass_raw_field = self.name_map.get("massRaw", "mass_raw")
+        if _has_field(raw_jets, mass_raw_field):
+            mass_type1_raw = raw_jets[mass_raw_field]
+        elif _has_field(raw_jets, self.name_map.get("JetMass")):
+            mass_type1_raw = raw_jets[self.name_map["JetMass"]] * (
+                1.0 - raw_jets[self.name_map["JetRawFactor"]]
+            )
         else:
-            prepared["mass_type1Raw"] = awkward.zeros_like(prepared["pt_type1Raw"])
+            mass_type1_raw = awkward.zeros_like(prepared["pt_type1Raw"])
+        return awkward.with_field(prepared, mass_type1_raw, "mass_type1Raw")
+
+    def _prepare_jets_for_corrected_factory(self, raw_jets):
+        prepared = raw_jets
+        pt_raw_field = self.name_map.get("ptRaw")
+        if pt_raw_field is not None and not _has_field(prepared, pt_raw_field):
+            prepared = awkward.with_field(prepared, self._jet_raw_pt(raw_jets), pt_raw_field)
+
+        mass_raw_field = self.name_map.get("massRaw")
+        jet_mass_field = self.name_map.get("JetMass")
+        if mass_raw_field is not None and not _has_field(prepared, mass_raw_field):
+            if _has_field(raw_jets, jet_mass_field):
+                mass_raw = raw_jets[jet_mass_field] * (1.0 - raw_jets[self.name_map["JetRawFactor"]])
+            else:
+                mass_raw = awkward.zeros_like(self._jet_raw_pt(raw_jets))
+            prepared = awkward.with_field(prepared, mass_raw, mass_raw_field)
+
         return prepared
 
+    def _build_corrected_jets_for_variations(self, raw_jets, lazy_cache):
+        factory = self.corrected_jets_factory_cls(
+            dict(self.name_map),
+            self.jec_stack,
+            self.run,
+            suppress_forward_eta_stochastic_jer=self.suppress_forward_eta_stochastic_jer,
+        )
+        return factory.build(
+            self._prepare_jets_for_corrected_factory(raw_jets),
+            lazy_cache={} if lazy_cache is None else lazy_cache,
+        )
+
     def _jet_type1_deltas(self, jets, factor_l1, factor_full, pt_scale_factor=None):
-        jet_raw_pt = jets[self.name_map["JetPt"]] * (1.0 - jets[self.name_map["JetRawFactor"]])
+        jet_raw_pt = self._jet_raw_pt(jets)
         pt_no_mu_raw = jet_raw_pt * (1.0 - jets[self.name_map["JetMuonSubtrFactor"]])
         delta_phi = _field_or_zeros(
             jets,
@@ -316,19 +361,19 @@ class Type1CorrectedMETFactory(object):
             with_name="METSystematic",
         )
 
-    def build(self, stored_met, raw_met, jets, corr_t1_met_jets, lazy_cache=None):
+    def build(self, stored_met, raw_met, raw_jets, corr_t1_met_jets, lazy_cache=None):
         if not isinstance(stored_met, awkward.highlevel.Array):
             raise TypeError("'stored_met' must be an awkward array.")
         if not isinstance(raw_met, awkward.highlevel.Array):
             raise TypeError("'raw_met' must be an awkward array.")
-        if not isinstance(jets, awkward.highlevel.Array):
-            raise TypeError("'jets' must be an awkward array.")
+        if not isinstance(raw_jets, awkward.highlevel.Array):
+            raise TypeError("'raw_jets' must be an awkward array.")
         if not isinstance(corr_t1_met_jets, awkward.highlevel.Array):
             raise TypeError("'corr_t1_met_jets' must be an awkward array.")
 
-        jec_jets = self._prepare_jets_for_jec(jets)
+        jec_jets = self._prepare_jets_for_jec(raw_jets)
         jet_l1, jet_full = self._evaluate_l1_and_full(jec_jets, self._jet_jec_name_map())
-        jet_deltas = self._jet_type1_deltas(jets, jet_l1, jet_full)
+        jet_deltas = self._jet_type1_deltas(raw_jets, jet_l1, jet_full)
 
         corr_l1, corr_full = self._evaluate_l1_and_full(
             corr_t1_met_jets,
@@ -347,22 +392,24 @@ class Type1CorrectedMETFactory(object):
         out_dict = {field: out[field] for field in awkward.fields(out)}
         out_dict["MET_UnclusteredEnergy"] = self._make_unclustered(stored_met, out)
 
+        variation_jets = self._build_corrected_jets_for_variations(raw_jets, lazy_cache)
+
         # CorrT1METJet is included in the nominal Type-1 correction but kept nominal
         # under JES/JER variations, following the coffea PR reference implementation.
-        for unc in filter(lambda x: x.startswith(("JER", "JES")), awkward.fields(jets)):
-            nominal_pt = jets[self.name_map["JetPt"]]
+        for unc in filter(lambda x: x.startswith(("JER", "JES")), awkward.fields(variation_jets)):
+            nominal_pt = variation_jets[self.name_map["JetPt"]]
             safe_nominal = awkward.where(nominal_pt > 0, nominal_pt, 1.0)
-            scale_up = jets[unc].up[self.name_map["JetPt"]] / safe_nominal
-            scale_down = jets[unc].down[self.name_map["JetPt"]] / safe_nominal
+            scale_up = variation_jets[unc].up[self.name_map["JetPt"]] / safe_nominal
+            scale_down = variation_jets[unc].down[self.name_map["JetPt"]] / safe_nominal
 
             up_jet_deltas = self._jet_type1_deltas(
-                jets,
+                raw_jets,
                 jet_l1,
                 jet_full,
                 pt_scale_factor=scale_up,
             )
             down_jet_deltas = self._jet_type1_deltas(
-                jets,
+                raw_jets,
                 jet_l1,
                 jet_full,
                 pt_scale_factor=scale_down,

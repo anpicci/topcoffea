@@ -65,6 +65,52 @@ class _FakeJECStack:
         return list(self.jec_names_clib)
 
 
+def _make_fake_corrected_jets_factory(
+    nominal_pt=50.0,
+    jer_up_pt=75.0,
+    jer_down_pt=25.0,
+    jes_up_pt=60.0,
+    jes_down_pt=45.0,
+):
+    class _FakeCorrectedJetsFactory:
+        instances = []
+
+        def __init__(
+            self,
+            name_map,
+            jec_stack,
+            run,
+            suppress_forward_eta_stochastic_jer=False,
+        ):
+            self.name_map = name_map
+            self.jec_stack = jec_stack
+            self.run = run
+            self.suppress_forward_eta_stochastic_jer = suppress_forward_eta_stochastic_jer
+            self.build_calls = 0
+            type(self).instances.append(self)
+
+        def build(self, jets, lazy_cache):
+            self.build_calls += 1
+            self.lazy_cache = lazy_cache
+            pt_field = self.name_map["JetPt"]
+            nominal = ak.ones_like(jets[pt_field]) * nominal_pt
+            out = ak.with_field(jets, nominal, pt_field)
+
+            jer_up = ak.with_field(out, ak.ones_like(jets[pt_field]) * jer_up_pt, pt_field)
+            jer_down = ak.with_field(out, ak.ones_like(jets[pt_field]) * jer_down_pt, pt_field)
+            jes_up = ak.with_field(out, ak.ones_like(jets[pt_field]) * jes_up_pt, pt_field)
+            jes_down = ak.with_field(out, ak.ones_like(jets[pt_field]) * jes_down_pt, pt_field)
+
+            out = ak.with_field(out, ak.zip({"up": jer_up, "down": jer_down}), "JER")
+            return ak.with_field(
+                out,
+                ak.zip({"up": jes_up, "down": jes_down}),
+                "JES_Total",
+            )
+
+    return _FakeCorrectedJetsFactory
+
+
 TYPE1_NAME_MAP = {
     "METpt": "pt",
     "METphi": "phi",
@@ -122,8 +168,6 @@ def _type1_jets(include_delta_phi=False, em_fail=False, low_pt=False):
         "chEmEF": 0.2 if not em_fail else 0.6,
         "neEmEF": 0.1 if not em_fail else 0.35,
         "rho": 20.0,
-        "JER": {"up": {"pt": 75.0}, "down": {"pt": 25.0}},
-        "JES_Total": {"up": {"pt": 60.0}, "down": {"pt": 45.0}},
     }
     if include_delta_phi:
         jet["muonSubtrDeltaPhi"] = math.pi / 2.0
@@ -146,12 +190,30 @@ def _corr_t1_jets(include_delta_phi=False, include_emef=False, em_fail=False):
     return ak.Array([[corr]])
 
 
-def _type1_factory():
-    return Type1CorrectedMETFactory(TYPE1_NAME_MAP, _FakeJECStack())
+def _type1_factory(
+    corrected_jets_factory_cls=None,
+    suppress_forward_eta_stochastic_jer=False,
+):
+    if corrected_jets_factory_cls is None:
+        corrected_jets_factory_cls = _make_fake_corrected_jets_factory()
+    return Type1CorrectedMETFactory(
+        TYPE1_NAME_MAP,
+        _FakeJECStack(),
+        suppress_forward_eta_stochastic_jer=suppress_forward_eta_stochastic_jer,
+        corrected_jets_factory_cls=corrected_jets_factory_cls,
+    )
 
 
-def _build_type1(jets=None, corr_t1=None):
-    return _type1_factory().build(
+def _build_type1(
+    jets=None,
+    corr_t1=None,
+    corrected_jets_factory_cls=None,
+    suppress_forward_eta_stochastic_jer=False,
+):
+    return _type1_factory(
+        corrected_jets_factory_cls=corrected_jets_factory_cls,
+        suppress_forward_eta_stochastic_jer=suppress_forward_eta_stochastic_jer,
+    ).build(
         _stored_puppimet(),
         _raw_puppimet(),
         _type1_jets() if jets is None else jets,
@@ -219,6 +281,32 @@ def test_type1_met_nominal_formula_and_v12_fallbacks():
     # RawPuppiMET x is 100, so Type-1 x is 100 - 46.
     assert _value(corrected.pt) == pytest.approx(54.0)
     assert _value(corrected.phi) == pytest.approx(0.0)
+
+
+def test_type1_met_nominal_uses_original_raw_jet_pt_not_corrected_pt():
+    corrected_jets_factory = _make_fake_corrected_jets_factory(
+        nominal_pt=500.0,
+        jer_up_pt=750.0,
+        jer_down_pt=250.0,
+        jes_up_pt=600.0,
+        jes_down_pt=450.0,
+    )
+
+    corrected = _build_type1(corrected_jets_factory_cls=corrected_jets_factory)
+
+    assert _value(corrected.pt) == pytest.approx(54.0)
+    assert corrected_jets_factory.instances[-1].build_calls == 1
+
+
+def test_type1_met_threads_forward_jer_suppression_to_internal_factory():
+    corrected_jets_factory = _make_fake_corrected_jets_factory()
+
+    _build_type1(
+        corrected_jets_factory_cls=corrected_jets_factory,
+        suppress_forward_eta_stochastic_jer=True,
+    )
+
+    assert corrected_jets_factory.instances[-1].suppress_forward_eta_stochastic_jer
 
 
 def test_type1_met_missing_delta_phi_fallback_uses_collection_phi():
