@@ -1,3 +1,4 @@
+import inspect
 import math
 
 import awkward as ak
@@ -46,8 +47,22 @@ class _ConstantCorrection:
         return np.ones(len(np.asarray(inputs[0])), dtype=np.float32) * self.scale
 
 
+class _PtScaledCorrection:
+    def __init__(self, reference_pt):
+        self.reference_pt = np.float32(reference_pt)
+        self.inputs = [
+            _CorrectionInput("JetPt"),
+            _CorrectionInput("JetEta"),
+            _CorrectionInput("JetA"),
+            _CorrectionInput("Rho"),
+        ]
+
+    def evaluate(self, *inputs):
+        return np.asarray(inputs[0], dtype=np.float32) / self.reference_pt
+
+
 class _FakeJECStack:
-    def __init__(self, l1_scale=1.0, l2_scale=2.0):
+    def __init__(self, l1_scale=1.0, l2_scale=2.0, l2_correction=None):
         self.use_clib = True
         self.jec_names_clib = [
             "Test_L1FastJet_AK4PFPuppi",
@@ -55,7 +70,7 @@ class _FakeJECStack:
         ]
         self.corrections = {
             self.jec_names_clib[0]: _ConstantCorrection(l1_scale),
-            self.jec_names_clib[1]: _ConstantCorrection(l2_scale),
+            self.jec_names_clib[1]: l2_correction or _ConstantCorrection(l2_scale),
         }
 
     def get_l1_jec_names(self):
@@ -193,14 +208,20 @@ def _corr_t1_jets(include_delta_phi=False, include_emef=False, em_fail=False):
 def _type1_factory(
     corrected_jets_factory_cls=None,
     suppress_forward_eta_stochastic_jer=False,
+    jec_stack=None,
 ):
     if corrected_jets_factory_cls is None:
         corrected_jets_factory_cls = _make_fake_corrected_jets_factory()
-    return Type1CorrectedMETFactory(
+    test_factory_cls = corrected_jets_factory_cls
+
+    class _TestType1CorrectedMETFactory(Type1CorrectedMETFactory):
+        pass
+
+    _TestType1CorrectedMETFactory._corrected_jets_factory_cls = test_factory_cls
+    return _TestType1CorrectedMETFactory(
         TYPE1_NAME_MAP,
-        _FakeJECStack(),
+        _FakeJECStack() if jec_stack is None else jec_stack,
         suppress_forward_eta_stochastic_jer=suppress_forward_eta_stochastic_jer,
-        corrected_jets_factory_cls=corrected_jets_factory_cls,
     )
 
 
@@ -209,10 +230,12 @@ def _build_type1(
     corr_t1=None,
     corrected_jets_factory_cls=None,
     suppress_forward_eta_stochastic_jer=False,
+    jec_stack=None,
 ):
     return _type1_factory(
         corrected_jets_factory_cls=corrected_jets_factory_cls,
         suppress_forward_eta_stochastic_jer=suppress_forward_eta_stochastic_jer,
+        jec_stack=jec_stack,
     ).build(
         _stored_puppimet(),
         _raw_puppimet(),
@@ -295,6 +318,56 @@ def test_type1_met_nominal_uses_original_raw_jet_pt_not_corrected_pt():
     corrected = _build_type1(corrected_jets_factory_cls=corrected_jets_factory)
 
     assert _value(corrected.pt) == pytest.approx(54.0)
+    assert corrected_jets_factory.instances[-1].build_calls == 1
+
+
+def test_type1_met_jet_jec_uses_no_mu_raw_pt_input():
+    jec_stack = _FakeJECStack(
+        l1_scale=1.0,
+        l2_correction=_PtScaledCorrection(reference_pt=18.0),
+    )
+
+    corrected = _build_type1(
+        corr_t1=_corr_t1_jets(include_emef=True, em_fail=True),
+        jec_stack=jec_stack,
+    )
+
+    # The L2 factor is JetPt / 18. With the intended no-muon raw JEC input,
+    # JetPt is 50 * (1 - 0.2) * (1 - 0.1) = 36, so L2 = 2 and the delta is 36.
+    # If the JEC input were pre-muon raw pT, L2 would instead see 40.
+    assert _value(corrected.pt) == pytest.approx(64.0)
+
+
+def test_type1_met_corr_t1_jec_uses_no_mu_raw_pt_input():
+    jec_stack = _FakeJECStack(
+        l1_scale=1.0,
+        l2_correction=_PtScaledCorrection(reference_pt=5.0),
+    )
+
+    corrected = _build_type1(
+        jets=_type1_jets(em_fail=True),
+        jec_stack=jec_stack,
+    )
+
+    # The CorrT1 L2 factor is JetPt / 5. With no-muon raw JEC input,
+    # JetPt is 20 * (1 - 0.5) = 10, so L2 = 2 and the delta is 10.
+    # If the JEC input were pre-muon raw pT, L2 would instead see 20.
+    assert _value(corrected.pt) == pytest.approx(90.0)
+
+
+def test_type1_met_corrected_jets_factory_hook_is_private():
+    assert "corrected_jets_factory_cls" not in inspect.signature(Type1CorrectedMETFactory).parameters
+
+    corrected_jets_factory = _make_fake_corrected_jets_factory()
+    factory = _type1_factory(corrected_jets_factory_cls=corrected_jets_factory)
+    factory.build(
+        _stored_puppimet(),
+        _raw_puppimet(),
+        _type1_jets(),
+        _corr_t1_jets(),
+        lazy_cache={},
+    )
+
     assert corrected_jets_factory.instances[-1].build_calls == 1
 
 

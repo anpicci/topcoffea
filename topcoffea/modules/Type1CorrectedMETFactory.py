@@ -133,6 +133,7 @@ def _copy_with_met(stored_met, name_map, met_vector):
 
 
 class Type1CorrectedMETFactory(object):
+    _corrected_jets_factory_cls = CorrectedJetsFactory
     _direct_unc_fields = {
         "pt_up": "ptUnclusteredUp",
         "pt_down": "ptUnclusteredDown",
@@ -148,7 +149,6 @@ class Type1CorrectedMETFactory(object):
         run=None,
         suppress_forward_eta_stochastic_jer=False,
         unclustered_mode="auto",
-        corrected_jets_factory_cls=CorrectedJetsFactory,
     ):
         if not isinstance(jec_stack, JECStack):
             if not (
@@ -172,7 +172,6 @@ class Type1CorrectedMETFactory(object):
         self.run = run
         self.suppress_forward_eta_stochastic_jer = suppress_forward_eta_stochastic_jer
         self.unclustered_mode = unclustered_mode
-        self.corrected_jets_factory_cls = corrected_jets_factory_cls
 
     def _get_unclustered_mode(self, stored_met):
         if self.unclustered_mode != "auto":
@@ -210,13 +209,13 @@ class Type1CorrectedMETFactory(object):
 
     def _jet_jec_name_map(self):
         name_map = dict(self.name_map)
-        name_map["JetPt"] = "pt_type1Raw"
+        name_map["JetPt"] = "pt_type1NoMuRaw"
         name_map["JetMass"] = "mass_type1Raw"
         return name_map
 
     def _corr_t1_jec_name_map(self):
         name_map = dict(self.name_map)
-        name_map["JetPt"] = self.name_map["CorrT1JetPt"]
+        name_map["JetPt"] = "pt_type1NoMuRaw"
         name_map["JetEta"] = self.name_map["CorrT1JetEta"]
         name_map["JetA"] = self.name_map["CorrT1JetArea"]
         return name_map
@@ -224,8 +223,18 @@ class Type1CorrectedMETFactory(object):
     def _jet_raw_pt(self, raw_jets):
         return raw_jets[self.name_map["JetPt"]] * (1.0 - raw_jets[self.name_map["JetRawFactor"]])
 
+    def _jet_no_mu_raw_pt(self, raw_jets):
+        return self._jet_raw_pt(raw_jets) * (
+            1.0 - raw_jets[self.name_map["JetMuonSubtrFactor"]]
+        )
+
+    def _corr_t1_no_mu_raw_pt(self, corr_t1_met_jets):
+        return corr_t1_met_jets[self.name_map["CorrT1JetPt"]] * (
+            1.0 - corr_t1_met_jets[self.name_map["CorrT1JetMuonSubtrFactor"]]
+        )
+
     def _prepare_jets_for_jec(self, raw_jets):
-        prepared = awkward.with_field(raw_jets, self._jet_raw_pt(raw_jets), "pt_type1Raw")
+        prepared = awkward.with_field(raw_jets, self._jet_no_mu_raw_pt(raw_jets), "pt_type1NoMuRaw")
         mass_raw_field = self.name_map.get("massRaw", "mass_raw")
         if _has_field(raw_jets, mass_raw_field):
             mass_type1_raw = raw_jets[mass_raw_field]
@@ -234,8 +243,15 @@ class Type1CorrectedMETFactory(object):
                 1.0 - raw_jets[self.name_map["JetRawFactor"]]
             )
         else:
-            mass_type1_raw = awkward.zeros_like(prepared["pt_type1Raw"])
+            mass_type1_raw = awkward.zeros_like(prepared["pt_type1NoMuRaw"])
         return awkward.with_field(prepared, mass_type1_raw, "mass_type1Raw")
+
+    def _prepare_corr_t1_for_jec(self, corr_t1_met_jets):
+        return awkward.with_field(
+            corr_t1_met_jets,
+            self._corr_t1_no_mu_raw_pt(corr_t1_met_jets),
+            "pt_type1NoMuRaw",
+        )
 
     def _prepare_jets_for_corrected_factory(self, raw_jets):
         prepared = raw_jets
@@ -254,21 +270,23 @@ class Type1CorrectedMETFactory(object):
 
         return prepared
 
-    def _build_corrected_jets_for_variations(self, raw_jets, lazy_cache):
-        factory = self.corrected_jets_factory_cls(
+    def _make_corrected_jets_factory(self):
+        return self._corrected_jets_factory_cls(
             dict(self.name_map),
             self.jec_stack,
             self.run,
             suppress_forward_eta_stochastic_jer=self.suppress_forward_eta_stochastic_jer,
         )
+
+    def _build_corrected_jets_for_variations(self, raw_jets, lazy_cache):
+        factory = self._make_corrected_jets_factory()
         return factory.build(
             self._prepare_jets_for_corrected_factory(raw_jets),
             lazy_cache={} if lazy_cache is None else lazy_cache,
         )
 
     def _jet_type1_deltas(self, jets, factor_l1, factor_full, pt_scale_factor=None):
-        jet_raw_pt = self._jet_raw_pt(jets)
-        pt_no_mu_raw = jet_raw_pt * (1.0 - jets[self.name_map["JetMuonSubtrFactor"]])
+        pt_no_mu_raw = self._jet_no_mu_raw_pt(jets)
         delta_phi = _field_or_zeros(
             jets,
             self.name_map.get("JetMuonSubtrDeltaPhi"),
@@ -295,8 +313,7 @@ class Type1CorrectedMETFactory(object):
         )
 
     def _corr_t1_type1_deltas(self, corr_t1_met_jets, factor_l1, factor_full):
-        raw_pt = corr_t1_met_jets[self.name_map["CorrT1JetPt"]]
-        pt_no_mu_raw = raw_pt * (1.0 - corr_t1_met_jets[self.name_map["CorrT1JetMuonSubtrFactor"]])
+        pt_no_mu_raw = self._corr_t1_no_mu_raw_pt(corr_t1_met_jets)
         delta_phi = _field_or_zeros(
             corr_t1_met_jets,
             self.name_map.get("CorrT1JetMuonSubtrDeltaPhi"),
@@ -375,10 +392,8 @@ class Type1CorrectedMETFactory(object):
         jet_l1, jet_full = self._evaluate_l1_and_full(jec_jets, self._jet_jec_name_map())
         jet_deltas = self._jet_type1_deltas(raw_jets, jet_l1, jet_full)
 
-        corr_l1, corr_full = self._evaluate_l1_and_full(
-            corr_t1_met_jets,
-            self._corr_t1_jec_name_map(),
-        )
+        corr_jec_jets = self._prepare_corr_t1_for_jec(corr_t1_met_jets)
+        corr_l1, corr_full = self._evaluate_l1_and_full(corr_jec_jets, self._corr_t1_jec_name_map())
         corr_deltas = self._corr_t1_type1_deltas(corr_t1_met_jets, corr_l1, corr_full)
 
         total_delta_px = jet_deltas.delta_px + corr_deltas.delta_px
