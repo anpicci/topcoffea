@@ -209,13 +209,13 @@ class Type1CorrectedMETFactory(object):
 
     def _jet_jec_name_map(self):
         name_map = dict(self.name_map)
-        name_map["JetPt"] = "pt_type1NoMuRaw"
+        name_map["JetPt"] = "pt_type1Raw"
         name_map["JetMass"] = "mass_type1Raw"
         return name_map
 
     def _corr_t1_jec_name_map(self):
         name_map = dict(self.name_map)
-        name_map["JetPt"] = "pt_type1NoMuRaw"
+        name_map["JetPt"] = "pt_type1Raw"
         name_map["JetEta"] = self.name_map["CorrT1JetEta"]
         name_map["JetA"] = self.name_map["CorrT1JetArea"]
         return name_map
@@ -228,13 +228,16 @@ class Type1CorrectedMETFactory(object):
             1.0 - raw_jets[self.name_map["JetMuonSubtrFactor"]]
         )
 
+    def _corr_t1_raw_pt(self, corr_t1_met_jets):
+        return corr_t1_met_jets[self.name_map["CorrT1JetPt"]]
+
     def _corr_t1_no_mu_raw_pt(self, corr_t1_met_jets):
-        return corr_t1_met_jets[self.name_map["CorrT1JetPt"]] * (
+        return self._corr_t1_raw_pt(corr_t1_met_jets) * (
             1.0 - corr_t1_met_jets[self.name_map["CorrT1JetMuonSubtrFactor"]]
         )
 
     def _prepare_jets_for_jec(self, raw_jets):
-        prepared = awkward.with_field(raw_jets, self._jet_no_mu_raw_pt(raw_jets), "pt_type1NoMuRaw")
+        prepared = awkward.with_field(raw_jets, self._jet_raw_pt(raw_jets), "pt_type1Raw")
         mass_raw_field = self.name_map.get("massRaw", "mass_raw")
         if _has_field(raw_jets, mass_raw_field):
             mass_type1_raw = raw_jets[mass_raw_field]
@@ -243,14 +246,14 @@ class Type1CorrectedMETFactory(object):
                 1.0 - raw_jets[self.name_map["JetRawFactor"]]
             )
         else:
-            mass_type1_raw = awkward.zeros_like(prepared["pt_type1NoMuRaw"])
+            mass_type1_raw = awkward.zeros_like(prepared["pt_type1Raw"])
         return awkward.with_field(prepared, mass_type1_raw, "mass_type1Raw")
 
     def _prepare_corr_t1_for_jec(self, corr_t1_met_jets):
         return awkward.with_field(
             corr_t1_met_jets,
-            self._corr_t1_no_mu_raw_pt(corr_t1_met_jets),
-            "pt_type1NoMuRaw",
+            self._corr_t1_raw_pt(corr_t1_met_jets),
+            "pt_type1Raw",
         )
 
     def _prepare_jets_for_corrected_factory(self, raw_jets):

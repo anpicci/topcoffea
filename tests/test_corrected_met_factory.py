@@ -321,10 +321,10 @@ def test_type1_met_nominal_uses_original_raw_jet_pt_not_corrected_pt():
     assert corrected_jets_factory.instances[-1].build_calls == 1
 
 
-def test_type1_met_jet_jec_uses_no_mu_raw_pt_input():
+def test_type1_met_jet_jec_uses_raw_pt_input_and_applies_to_no_mu_raw_pt():
     jec_stack = _FakeJECStack(
         l1_scale=1.0,
-        l2_correction=_PtScaledCorrection(reference_pt=18.0),
+        l2_correction=_PtScaledCorrection(reference_pt=20.0),
     )
 
     corrected = _build_type1(
@@ -332,16 +332,17 @@ def test_type1_met_jet_jec_uses_no_mu_raw_pt_input():
         jec_stack=jec_stack,
     )
 
-    # The L2 factor is JetPt / 18. With the intended no-muon raw JEC input,
-    # JetPt is 50 * (1 - 0.2) * (1 - 0.1) = 36, so L2 = 2 and the delta is 36.
-    # If the JEC input were pre-muon raw pT, L2 would instead see 40.
+    # The L2 factor is JetPt / 20. With the intended raw JEC input,
+    # JetPt is 50 * (1 - 0.2) = 40, so L2 = 2. That factor is then applied
+    # to no-muon raw pT, 40 * (1 - 0.1) = 36, so the delta is 36.
+    # If the JEC input were no-muon raw pT, L2 would instead see 36.
     assert _value(corrected.pt) == pytest.approx(64.0)
 
 
-def test_type1_met_corr_t1_jec_uses_no_mu_raw_pt_input():
+def test_type1_met_corr_t1_jec_uses_raw_pt_input_and_applies_to_no_mu_raw_pt():
     jec_stack = _FakeJECStack(
         l1_scale=1.0,
-        l2_correction=_PtScaledCorrection(reference_pt=5.0),
+        l2_correction=_PtScaledCorrection(reference_pt=10.0),
     )
 
     corrected = _build_type1(
@@ -349,9 +350,10 @@ def test_type1_met_corr_t1_jec_uses_no_mu_raw_pt_input():
         jec_stack=jec_stack,
     )
 
-    # The CorrT1 L2 factor is JetPt / 5. With no-muon raw JEC input,
-    # JetPt is 20 * (1 - 0.5) = 10, so L2 = 2 and the delta is 10.
-    # If the JEC input were pre-muon raw pT, L2 would instead see 20.
+    # The CorrT1 L2 factor is JetPt / 10. With the intended raw JEC input,
+    # JetPt is rawPt = 20, so L2 = 2. That factor is then applied to
+    # no-muon raw pT, 20 * (1 - 0.5) = 10, so the delta is 10.
+    # If the JEC input were no-muon raw pT, L2 would instead see 10.
     assert _value(corrected.pt) == pytest.approx(90.0)
 
 
