@@ -17,6 +17,9 @@ _TYPE1_REQUIRED_KEYS = [
     "JetPhi",
     "JetEta",
     "JetA",
+    # Regular-Jet Type-1 raw inputs are caller-prepared by contract.
+    "ptRaw",
+    "massRaw",
     "JetMuonSubtrFactor",
     "JetChEmEF",
     "JetNeEmEF",

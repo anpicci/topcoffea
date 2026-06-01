@@ -385,6 +385,22 @@ def test_type1_met_requires_regular_jet_mass_raw():
         _build_type1(jets=_type1_jets(include_mass_raw=False))
 
 
+def test_type1_met_requires_pt_raw_name_map_key():
+    name_map = dict(TYPE1_NAME_MAP)
+    del name_map["ptRaw"]
+
+    with pytest.raises(ValueError, match="ptRaw.*Type1CorrectedMETFactory"):
+        Type1CorrectedMETFactory(name_map, _FakeJECStack())
+
+
+def test_type1_met_requires_mass_raw_name_map_key():
+    name_map = dict(TYPE1_NAME_MAP)
+    del name_map["massRaw"]
+
+    with pytest.raises(ValueError, match="massRaw.*Type1CorrectedMETFactory"):
+        Type1CorrectedMETFactory(name_map, _FakeJECStack())
+
+
 def test_type1_met_uses_caller_provided_raw_mass_for_jec_inputs():
     corrected_jets_factory = _make_fake_corrected_jets_factory()
 
