@@ -421,6 +421,33 @@ def test_type1_met_direct_unclustered_recentering():
     assert _value(corrected.MET_UnclusteredEnergy.down.phi) == pytest.approx(0.0)
 
 
+def test_type1_met_legacy_delta_xy_unclustered_recentering():
+    stored_met = ak.Array(
+        [
+            {
+                "pt": 120.0,
+                "phi": 0.0,
+                "MetUnclustEnUpDeltaX": 10.0,
+                "MetUnclustEnUpDeltaY": 0.0,
+            }
+        ]
+    )
+
+    corrected = _type1_factory().build(
+        stored_met,
+        _raw_puppimet(),
+        _type1_jets(),
+        _corr_t1_jets(),
+        lazy_cache={},
+    )
+
+    assert _value(corrected.pt) == pytest.approx(54.0)
+    assert _value(corrected.MET_UnclusteredEnergy.up.pt) == pytest.approx(64.0)
+    assert _value(corrected.MET_UnclusteredEnergy.down.pt) == pytest.approx(44.0)
+    assert _value(corrected.MET_UnclusteredEnergy.up.phi) == pytest.approx(0.0)
+    assert _value(corrected.MET_UnclusteredEnergy.down.phi) == pytest.approx(0.0)
+
+
 def test_type1_met_jes_jer_variations_vary_jet_full_leg_only():
     corrected = _build_type1()
 
