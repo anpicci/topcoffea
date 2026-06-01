@@ -93,6 +93,22 @@ class JECStack:
         """Convert to list for clib case."""
         return self.jec_names_clib + self.jer_names_clib + self.jec_uncsources_clib + [self.json_path, self.savecorr]
 
+    def get_l1_jec_names(self):
+        """Return the configured L1-only correctionlib JEC name."""
+        if not self.use_clib:
+            raise NotImplementedError("L1/full JEC name helpers are only implemented for correctionlib stacks.")
+
+        l1_names = [name for name in self.jec_names_clib if "_L1FastJet_" in name]
+        if len(l1_names) != 1:
+            raise ValueError(f"Expected exactly one L1FastJet correction, found {l1_names}.")
+        return l1_names
+
+    def get_full_jec_names(self):
+        """Return configured correctionlib JEC names in multiplication order."""
+        if not self.use_clib:
+            raise NotImplementedError("L1/full JEC name helpers are only implemented for correctionlib stacks.")
+        return list(self.jec_names_clib)
+
     def assemble_corrections(self):
         """Assemble corrections for both scenarios."""
         assembled = {"jec": {}, "junc": {}, "jer": {}, "jersf": {}}
