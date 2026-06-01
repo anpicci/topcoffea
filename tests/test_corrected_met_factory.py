@@ -50,6 +50,7 @@ class _ConstantCorrection:
 class _PtScaledCorrection:
     def __init__(self, reference_pt):
         self.reference_pt = np.float32(reference_pt)
+        self.seen_pt = []
         self.inputs = [
             _CorrectionInput("JetPt"),
             _CorrectionInput("JetEta"),
@@ -58,7 +59,9 @@ class _PtScaledCorrection:
         ]
 
     def evaluate(self, *inputs):
-        return np.asarray(inputs[0], dtype=np.float32) / self.reference_pt
+        jet_pt = np.asarray(inputs[0], dtype=np.float32)
+        self.seen_pt.append(jet_pt.copy())
+        return jet_pt / self.reference_pt
 
 
 class _FakeJECStack:
@@ -107,6 +110,7 @@ def _make_fake_corrected_jets_factory(
         def build(self, jets, lazy_cache):
             self.build_calls += 1
             self.lazy_cache = lazy_cache
+            self.jets = jets
             pt_field = self.name_map["JetPt"]
             nominal = ak.ones_like(jets[pt_field]) * nominal_pt
             out = ak.with_field(jets, nominal, pt_field)
@@ -132,9 +136,12 @@ TYPE1_NAME_MAP = {
     "RawMETpt": "pt",
     "RawMETphi": "phi",
     "JetPt": "pt",
+    "JetMass": "mass",
     "JetPhi": "phi",
     "JetEta": "eta",
     "JetA": "area",
+    "ptRaw": "pt_raw",
+    "massRaw": "mass_raw",
     "JetRawFactor": "rawFactor",
     "JetMuonSubtrFactor": "muonSubtrFactor",
     "JetMuonSubtrDeltaPhi": "muonSubtrDeltaPhi",
@@ -172,18 +179,39 @@ def _raw_puppimet():
     return ak.Array([{"pt": 100.0, "phi": 0.0}])
 
 
-def _type1_jets(include_delta_phi=False, em_fail=False, low_pt=False):
+def _type1_jets(
+    include_delta_phi=False,
+    em_fail=False,
+    low_pt=False,
+    pt=50.0,
+    raw_factor=0.2,
+    pt_raw=None,
+    mass=10.0,
+    mass_raw=None,
+    include_pt_raw=True,
+    include_mass_raw=True,
+):
+    jet_pt = pt if not low_pt else 10.0
+    if pt_raw is None:
+        pt_raw = jet_pt * (1.0 - raw_factor)
+    if mass_raw is None:
+        mass_raw = mass * (1.0 - raw_factor)
     jet = {
-        "pt": 50.0 if not low_pt else 10.0,
+        "pt": jet_pt,
+        "mass": mass,
         "phi": 0.0,
         "eta": 0.2,
         "area": 0.5,
-        "rawFactor": 0.2,
+        "rawFactor": raw_factor,
         "muonSubtrFactor": 0.1,
         "chEmEF": 0.2 if not em_fail else 0.6,
         "neEmEF": 0.1 if not em_fail else 0.35,
         "rho": 20.0,
     }
+    if include_pt_raw:
+        jet["pt_raw"] = pt_raw
+    if include_mass_raw:
+        jet["mass_raw"] = mass_raw
     if include_delta_phi:
         jet["muonSubtrDeltaPhi"] = math.pi / 2.0
     return ak.Array([[jet]])
@@ -299,7 +327,7 @@ def test_met_unclustered_energy_missing_fields_fails_clearly():
 def test_type1_met_nominal_formula_and_v12_fallbacks():
     corrected = _build_type1()
 
-    # Jet: 50 * (1 - 0.2) * (1 - 0.1) = 36, full-L1 delta = 36.
+    # Jet: caller-provided pt_raw 40 * (1 - 0.1) = 36, full-L1 delta = 36.
     # CorrT1METJet: 20 * (1 - 0.5) = 10, full-L1 delta = 10.
     # RawPuppiMET x is 100, so Type-1 x is 100 - 46.
     assert _value(corrected.pt) == pytest.approx(54.0)
@@ -322,21 +350,53 @@ def test_type1_met_nominal_uses_original_raw_jet_pt_not_corrected_pt():
 
 
 def test_type1_met_jet_jec_uses_raw_pt_input_and_applies_to_no_mu_raw_pt():
+    l2_correction = _PtScaledCorrection(reference_pt=15.0)
     jec_stack = _FakeJECStack(
         l1_scale=1.0,
-        l2_correction=_PtScaledCorrection(reference_pt=20.0),
+        l2_correction=l2_correction,
     )
 
     corrected = _build_type1(
+        jets=_type1_jets(pt=50.0, raw_factor=0.2, pt_raw=30.0, mass_raw=7.0),
         corr_t1=_corr_t1_jets(include_emef=True, em_fail=True),
         jec_stack=jec_stack,
     )
 
-    # The L2 factor is JetPt / 20. With the intended raw JEC input,
-    # JetPt is 50 * (1 - 0.2) = 40, so L2 = 2. That factor is then applied
-    # to no-muon raw pT, 40 * (1 - 0.1) = 36, so the delta is 36.
-    # If the JEC input were no-muon raw pT, L2 would instead see 36.
-    assert _value(corrected.pt) == pytest.approx(64.0)
+    # The L2 factor is JetPt / 15. The caller-provided pt_raw is 30, while
+    # pt * (1 - rawFactor) would be 40. The JEC input must see 30, then the
+    # factor is applied to no-muon raw pT, 30 * (1 - 0.1) = 27.
+    np.testing.assert_allclose(l2_correction.seen_pt[0], np.array([30.0], dtype=np.float32))
+    assert _value(corrected.pt) == pytest.approx(73.0)
+
+
+def test_type1_met_requires_regular_jet_pt_raw():
+    with pytest.raises(
+        ValueError,
+        match="Type1CorrectedMETFactory.*regular Jet pt_raw.*caller-prepared raw pT",
+    ):
+        _build_type1(jets=_type1_jets(include_pt_raw=False))
+
+
+def test_type1_met_requires_regular_jet_mass_raw():
+    with pytest.raises(
+        ValueError,
+        match="Type1CorrectedMETFactory.*regular Jet mass_raw.*caller-prepared raw mass",
+    ):
+        _build_type1(jets=_type1_jets(include_mass_raw=False))
+
+
+def test_type1_met_uses_caller_provided_raw_mass_for_jec_inputs():
+    corrected_jets_factory = _make_fake_corrected_jets_factory()
+
+    _build_type1(
+        jets=_type1_jets(mass=10.0, raw_factor=0.2, mass_raw=7.0),
+        corrected_jets_factory_cls=corrected_jets_factory,
+    )
+
+    np.testing.assert_allclose(
+        ak.to_numpy(ak.flatten(corrected_jets_factory.instances[-1].jets.mass_raw)),
+        np.array([7.0], dtype=np.float32),
+    )
 
 
 def test_type1_met_corr_t1_jec_uses_raw_pt_input_and_applies_to_no_mu_raw_pt():
