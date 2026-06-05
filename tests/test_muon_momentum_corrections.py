@@ -1,9 +1,12 @@
 from types import SimpleNamespace
 
 import awkward as ak
+import correctionlib
+import numpy as np
 import pytest
 
 import topcoffea.modules.muon_momentum_corrections as mmc
+from topcoffea.modules import muon_scarekit_backend
 
 
 class _FakeBackend:
@@ -80,6 +83,17 @@ def _apply(variation="nominal", is_data=False, backend=None):
     )
 
 
+def _default_correction_set(year="2022"):
+    return correctionlib.CorrectionSet.from_file(
+        str(mmc.get_scarekit_payload_path(year))
+    )
+
+
+def _assert_finite_nested_like_muons(values):
+    assert ak.to_list(ak.num(values)) == [2, 0, 1]
+    assert np.all(np.isfinite(ak.to_numpy(ak.flatten(values))))
+
+
 @pytest.mark.parametrize(
     ("year", "campaign"),
     [
@@ -91,10 +105,36 @@ def _apply(variation="nominal", is_data=False, backend=None):
 )
 def test_campaign_routing(year, campaign):
     assert mmc.get_run3_muon_campaign(year) == campaign
-    assert (
-        mmc.get_scarekit_payload_path(year, "/payloads")
-        == mmc.Path("/payloads") / f"{campaign}.json"
+    path = mmc.get_scarekit_payload_path(year, "/payloads")
+    assert path == mmc.Path("/payloads") / campaign / "muon_scalesmearing.json.gz"
+    assert "_VXBS" not in str(path)
+
+
+def test_default_payload_path_uses_standard_scalesmearing_file():
+    path = mmc.get_scarekit_payload_path("2022")
+
+    assert path.name == "muon_scalesmearing.json.gz"
+    assert path.parent.name == "2022_Summer22"
+    assert "_VXBS" not in str(path)
+
+
+@pytest.mark.parametrize("year", ["2022", "2022EE", "2023", "2023BPix"])
+def test_standard_payloads_load_with_correctionlib(year):
+    cset = correctionlib.CorrectionSet.from_file(
+        str(mmc.get_scarekit_payload_path(year))
     )
+
+    assert sorted(cset.keys()) == [
+        "RandomSmearing",
+        "a_data",
+        "a_mc",
+        "cb_params",
+        "k_data",
+        "k_mc",
+        "m_data",
+        "m_mc",
+        "poly_params",
+    ]
 
 
 def test_unsupported_campaign_fails_loudly():
@@ -168,21 +208,114 @@ def test_nested_shape_is_preserved():
     assert ak.to_list(corrected) == [[33.2, 48.2], [], [63.2]]
 
 
+def test_data_nominal_works_with_default_backend_and_payload():
+    corrected = mmc.apply_muon_momentum_corrections(
+        _muons(),
+        "2022",
+        True,
+    )
+
+    _assert_finite_nested_like_muons(corrected)
+
+
+def test_mc_nominal_works_with_default_backend_and_payload():
+    corrected = mmc.apply_muon_momentum_corrections(
+        _muons(),
+        "2022",
+        False,
+        event_numbers=ak.Array([101, 102, 103]),
+        luminosity_blocks=ak.Array([11, 12, 13]),
+    )
+
+    _assert_finite_nested_like_muons(corrected)
+
+
+def test_adapter_data_nominal_matches_direct_vendored_backend():
+    muons = _muons()
+    cset = _default_correction_set()
+
+    adapter = mmc.apply_muon_momentum_corrections(
+        muons,
+        "2022",
+        True,
+        correction_set=cset,
+    )
+    direct = muon_scarekit_backend.pt_scale(
+        True,
+        muons.pt,
+        muons.eta,
+        muons.phi,
+        muons.charge,
+        cset,
+        nested=True,
+    )
+
+    assert ak.to_list(adapter) == ak.to_list(direct)
+
+
+def test_adapter_mc_nominal_matches_direct_vendored_backend():
+    muons = _muons()
+    events = ak.Array([101, 102, 103])
+    lumis = ak.Array([11, 12, 13])
+    cset = _default_correction_set()
+
+    adapter = mmc.apply_muon_momentum_corrections(
+        muons,
+        "2022",
+        False,
+        event_numbers=events,
+        luminosity_blocks=lumis,
+        correction_set=cset,
+    )
+    scaled = muon_scarekit_backend.pt_scale(
+        False,
+        muons.pt,
+        muons.eta,
+        muons.phi,
+        muons.charge,
+        cset,
+        nested=True,
+    )
+    direct = muon_scarekit_backend.pt_resol(
+        scaled,
+        muons.eta,
+        muons.phi,
+        muons.nTrackerLayers,
+        events,
+        lumis,
+        cset,
+        nested=True,
+    )
+
+    assert ak.to_list(adapter) == ak.to_list(direct)
+
+
 def test_missing_backend_fails_with_actionable_error(monkeypatch):
     def _missing_backend(name):
         raise ModuleNotFoundError(name)
 
     monkeypatch.setattr(mmc.importlib, "import_module", _missing_backend)
 
-    with pytest.raises(RuntimeError, match="external ScaReKit"):
+    with pytest.raises(RuntimeError, match="vendored ScaReKit"):
         _apply(is_data=True)
 
 
-def test_missing_payload_source_fails_loudly():
-    with pytest.raises(RuntimeError, match="correction_set or payload_directory"):
+def test_malformed_backend_injection_fails_with_clear_error():
+    with pytest.raises(RuntimeError, match="missing required functions: pt_resol"):
         mmc.apply_muon_momentum_corrections(
             _muons(),
             "2022",
             True,
-            backend=SimpleNamespace(),
+            correction_set=object(),
+            backend=SimpleNamespace(pt_scale=lambda *args, **kwargs: None),
+        )
+
+
+def test_missing_payload_file_fails_loudly(tmp_path):
+    with pytest.raises(FileNotFoundError, match="payload not found"):
+        mmc.apply_muon_momentum_corrections(
+            _muons(),
+            "2022",
+            True,
+            payload_directory=tmp_path,
         )

@@ -1,10 +1,12 @@
-"""Run 3 muon momentum corrections backed by the external ScaReKit API."""
+"""Run 3 muon momentum corrections backed by the vendored ScaReKit API."""
 
 import importlib
 from pathlib import Path
 
 import awkward as ak
 import correctionlib
+
+from topcoffea.modules.paths import topcoffea_path
 
 
 RUN3_MUON_CAMPAIGNS = {
@@ -42,29 +44,41 @@ def get_run3_muon_campaign(year):
         ) from exc
 
 
-def get_scarekit_payload_path(year, payload_directory):
-    """Build the expected ScaReKit JSON path without requiring it to exist."""
+def get_scarekit_payload_directory():
+    """Return the default Run 3 MUO payload directory packaged with topcoffea."""
+    return Path(topcoffea_path("data/POG/MUO"))
+
+
+def get_scarekit_payload_path(year, payload_directory=None):
+    """Build the expected standard ScaReKit payload path."""
     campaign = get_run3_muon_campaign(year)
-    return Path(payload_directory) / f"{campaign}.json"
+    if payload_directory is None:
+        payload_directory = get_scarekit_payload_directory()
+    return Path(payload_directory) / campaign / "muon_scalesmearing.json.gz"
+
+
+def _validate_scarekit_backend(backend):
+    missing = [name for name in _SCAREKIT_FUNCTIONS if not hasattr(backend, name)]
+    if missing:
+        raise RuntimeError(
+            "The ScaReKit backend is missing required functions: "
+            + ", ".join(missing)
+        )
+    return backend
 
 
 def _load_scarekit_backend():
     try:
-        backend = importlib.import_module("MuonScaRe")
+        backend = importlib.import_module(
+            "topcoffea.modules.muon_scarekit_backend"
+        )
     except ModuleNotFoundError as exc:
         raise RuntimeError(
-            "Run 3 muon momentum corrections require the external ScaReKit "
-            'Python module "MuonScaRe". Install/expose a validated ScaReKit '
-            "release or pass an explicit backend."
+            "Run 3 muon momentum corrections require the vendored ScaReKit "
+            "backend at topcoffea.modules.muon_scarekit_backend."
         ) from exc
 
-    missing = [name for name in _SCAREKIT_FUNCTIONS if not hasattr(backend, name)]
-    if missing:
-        raise RuntimeError(
-            "The imported ScaReKit backend is missing required functions: "
-            + ", ".join(missing)
-        )
-    return backend
+    return _validate_scarekit_backend(backend)
 
 
 def _load_correction_set(year, correction_set, payload_directory):
@@ -74,13 +88,13 @@ def _load_correction_set(year, correction_set, payload_directory):
         )
     if correction_set is not None:
         return correction_set
-    if payload_directory is None:
-        raise RuntimeError(
-            "Run 3 muon momentum corrections require correction_set or "
-            "payload_directory; no stable ScaReKit payload source is configured."
-        )
 
     payload_path = get_scarekit_payload_path(year, payload_directory)
+    if not payload_path.exists():
+        raise FileNotFoundError(
+            "Run 3 muon momentum correction payload not found: "
+            f"{payload_path}"
+        )
     return correctionlib.CorrectionSet.from_file(str(payload_path))
 
 
@@ -131,7 +145,11 @@ def apply_muon_momentum_corrections(
     correction_set = _load_correction_set(
         year, correction_set, payload_directory
     )
-    backend = _load_scarekit_backend() if backend is None else backend
+    backend = (
+        _load_scarekit_backend()
+        if backend is None
+        else _validate_scarekit_backend(backend)
+    )
 
     scaled_pt = backend.pt_scale(
         is_data,
