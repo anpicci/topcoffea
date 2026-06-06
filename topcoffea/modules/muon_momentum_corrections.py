@@ -44,16 +44,11 @@ def get_run3_muon_campaign(year):
         ) from exc
 
 
-def get_scarekit_payload_directory():
-    """Return the default Run 3 MUO payload directory packaged with topcoffea."""
-    return Path(topcoffea_path("data/POG/MUO"))
-
-
 def get_scarekit_payload_path(year, payload_directory=None):
     """Build the expected standard ScaReKit payload path."""
     campaign = get_run3_muon_campaign(year)
     if payload_directory is None:
-        payload_directory = get_scarekit_payload_directory()
+        payload_directory = topcoffea_path("data/POG/MUO")
     return Path(payload_directory) / campaign / "muon_scalesmearing.json.gz"
 
 

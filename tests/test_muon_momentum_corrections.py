@@ -7,6 +7,7 @@ import pytest
 
 import topcoffea.modules.muon_momentum_corrections as mmc
 from topcoffea.modules import muon_scarekit_backend
+from topcoffea.modules.paths import topcoffea_path
 
 
 class _FakeBackend:
@@ -113,6 +114,13 @@ def test_campaign_routing(year, campaign):
 def test_default_payload_path_uses_standard_scalesmearing_file():
     path = mmc.get_scarekit_payload_path("2022")
 
+    assert not hasattr(mmc, "get_scarekit_payload_directory")
+    assert path == (
+        mmc.Path(topcoffea_path("data/POG/MUO"))
+        / "2022_Summer22"
+        / "muon_scalesmearing.json.gz"
+    )
+    assert path.exists()
     assert path.name == "muon_scalesmearing.json.gz"
     assert path.parent.name == "2022_Summer22"
     assert "_VXBS" not in str(path)
