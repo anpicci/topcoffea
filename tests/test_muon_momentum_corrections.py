@@ -71,6 +71,44 @@ def _muons():
     )
 
 
+def _domain_muons():
+    pts = [
+        [15.0, 20.0, 25.99, 26.0, 26.01],
+        [50.0, 199.99, 200.0, 200.01, 250.0],
+    ]
+    etas = [
+        [-2.0, -1.2, -0.5, 0.0, 0.8],
+        [1.1, 1.8, 2.2, -2.2, 0.4],
+    ]
+    phis = [
+        [-2.4, -1.5, -0.3, 0.1, 1.2],
+        [2.5, 1.7, 0.5, -0.9, -2.8],
+    ]
+    charges = [
+        [1, -1, 1, -1, 1],
+        [-1, 1, -1, 1, -1],
+    ]
+    return ak.Array(
+        [
+            [
+                {
+                    "pt": pt,
+                    "eta": eta,
+                    "phi": phi,
+                    "charge": charge,
+                    "nTrackerLayers": 12,
+                }
+                for pt, eta, phi, charge in zip(
+                    event_pts, event_etas, event_phis, event_charges
+                )
+            ]
+            for event_pts, event_etas, event_phis, event_charges in zip(
+                pts, etas, phis, charges
+            )
+        ]
+    )
+
+
 def _apply(variation="nominal", is_data=False, backend=None):
     return mmc.apply_muon_momentum_corrections(
         _muons(),
@@ -88,6 +126,12 @@ def _default_correction_set(year="2022"):
     return correctionlib.CorrectionSet.from_file(
         str(mmc.get_scarekit_payload_path(year))
     )
+
+
+def _domain_raw_and_masks(muons):
+    raw = ak.to_numpy(ak.flatten(muons.pt))
+    outside = (raw < 26.0) | (raw > 200.0)
+    return raw, outside, ~outside
 
 
 def _assert_finite_nested_like_muons(values):
@@ -158,9 +202,25 @@ def test_data_nominal_dispatches_scale_only():
     assert ak.to_list(corrected) == [[31.0, 46.0], [], [61.0]]
 
 
-def test_data_rejects_object_variations():
+@pytest.mark.parametrize("variation", mmc.MUON_MOMENTUM_VARIATIONS[1:])
+def test_data_rejects_object_variations(variation):
     with pytest.raises(ValueError, match="not applicable to data"):
-        _apply("MuonResolutionUp", is_data=True, backend=_FakeBackend())
+        _apply(variation, is_data=True, backend=_FakeBackend())
+
+
+@pytest.mark.parametrize("variation", mmc.MUON_MOMENTUM_VARIATIONS[1:])
+def test_run2_campaign_rejects_run3_variations(variation):
+    with pytest.raises(ValueError, match="Unsupported Run 3"):
+        mmc.apply_muon_momentum_corrections(
+            _muons(),
+            "2018",
+            False,
+            variation,
+            event_numbers=ak.Array([101, 102, 103]),
+            luminosity_blocks=ak.Array([11, 12, 13]),
+            correction_set=object(),
+            backend=_FakeBackend(),
+        )
 
 
 def test_mc_nominal_dispatches_scale_then_resolution():
@@ -214,6 +274,68 @@ def test_nested_shape_is_preserved():
 
     assert ak.to_list(ak.num(corrected)) == [2, 0, 1]
     assert ak.to_list(corrected) == [[33.2, 48.2], [], [63.2]]
+
+
+@pytest.mark.parametrize(
+    ("variation", "in_domain_offset"),
+    [
+        ("nominal", 3.0),
+        ("MuonScaleUp", 3.1),
+        ("MuonScaleDown", 2.9),
+        ("MuonResolutionUp", 3.2),
+        ("MuonResolutionDown", 2.8),
+    ],
+)
+def test_nested_run3_mc_domain_fallback_masks_all_variations(
+    variation, in_domain_offset
+):
+    muons = _domain_muons()
+    corrected = mmc.apply_muon_momentum_corrections(
+        muons,
+        "2022",
+        False,
+        variation,
+        event_numbers=ak.Array([201, 202]),
+        luminosity_blocks=ak.Array([21, 22]),
+        correction_set=object(),
+        backend=_FakeBackend(),
+    )
+
+    raw, outside, inside = _domain_raw_and_masks(muons)
+    values = ak.to_numpy(ak.flatten(corrected))
+
+    np.testing.assert_allclose(values[outside], raw[outside])
+    np.testing.assert_allclose(values[inside], raw[inside] + in_domain_offset)
+
+
+def test_default_backend_domain_fallback_and_in_domain_variations():
+    muons = _domain_muons()
+    raw, outside, inside = _domain_raw_and_masks(muons)
+    outputs = {}
+
+    for variation in mmc.MUON_MOMENTUM_VARIATIONS:
+        corrected = mmc.apply_muon_momentum_corrections(
+            muons,
+            "2022",
+            False,
+            variation,
+            event_numbers=ak.Array([201, 202]),
+            luminosity_blocks=ak.Array([21, 22]),
+        )
+        values = ak.to_numpy(ak.flatten(corrected))
+        assert np.all(np.isfinite(values))
+        np.testing.assert_allclose(values[outside], raw[outside])
+        outputs[variation] = values
+
+    assert np.any(np.abs(outputs["nominal"][inside] - raw[inside]) > 1e-8)
+    assert np.any(
+        np.abs(outputs["MuonScaleUp"][inside] - outputs["nominal"][inside])
+        > 1e-8
+    )
+    assert np.any(
+        np.abs(outputs["MuonScaleDown"][inside] - outputs["nominal"][inside])
+        > 1e-8
+    )
 
 
 def test_data_nominal_works_with_default_backend_and_payload():

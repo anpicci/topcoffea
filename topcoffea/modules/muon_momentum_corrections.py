@@ -31,6 +31,9 @@ _SCAREKIT_FUNCTIONS = (
     "pt_resol_var",
 )
 
+_SCAREKIT_PT_MIN_GEV = 26.0
+_SCAREKIT_PT_MAX_GEV = 200.0
+
 
 def get_run3_muon_campaign(year):
     """Return the ScaReKit campaign name for a supported analysis year."""
@@ -105,6 +108,14 @@ def _require_muon_fields(muons, is_data):
         )
 
 
+def _apply_muonscarekit_pt_domain_fallback(muons, corrected_pt):
+    outside_domain = (
+        (muons.pt < _SCAREKIT_PT_MIN_GEV)
+        | (muons.pt > _SCAREKIT_PT_MAX_GEV)
+    )
+    return ak.where(outside_domain, muons.pt, corrected_pt)
+
+
 def apply_muon_momentum_corrections(
     muons,
     year,
@@ -155,6 +166,7 @@ def apply_muon_momentum_corrections(
         correction_set,
         nested=True,
     )
+    scaled_pt = _apply_muonscarekit_pt_domain_fallback(muons, scaled_pt)
     if is_data:
         return scaled_pt
 
@@ -174,10 +186,11 @@ def apply_muon_momentum_corrections(
         correction_set,
         nested=True,
     )
+    nominal_pt = _apply_muonscarekit_pt_domain_fallback(muons, nominal_pt)
     if variation == "nominal":
         return nominal_pt
     if variation == "MuonScaleUp":
-        return backend.pt_scale_var(
+        varied_pt = backend.pt_scale_var(
             nominal_pt,
             muons.eta,
             muons.phi,
@@ -186,8 +199,9 @@ def apply_muon_momentum_corrections(
             correction_set,
             nested=True,
         )
+        return _apply_muonscarekit_pt_domain_fallback(muons, varied_pt)
     if variation == "MuonScaleDown":
-        return backend.pt_scale_var(
+        varied_pt = backend.pt_scale_var(
             nominal_pt,
             muons.eta,
             muons.phi,
@@ -196,11 +210,12 @@ def apply_muon_momentum_corrections(
             correction_set,
             nested=True,
         )
+        return _apply_muonscarekit_pt_domain_fallback(muons, varied_pt)
     if variation == "MuonResolutionUp":
         direction = "up"
     else:
         direction = "dn"
-    return backend.pt_resol_var(
+    varied_pt = backend.pt_resol_var(
         scaled_pt,
         nominal_pt,
         muons.eta,
@@ -208,3 +223,4 @@ def apply_muon_momentum_corrections(
         correction_set,
         nested=True,
     )
+    return _apply_muonscarekit_pt_domain_fallback(muons, varied_pt)
