@@ -27,7 +27,8 @@ TTJets_DiLept           : 87.31483776
 TTToSemiLeptonic        : 364.35080448
 TT                      : 831.76
 
-ZGToLLG                 : 55.78
+# AN-19-156
+ZGToLLG                 : 59.21
 ZG                      : 131.3
 WG                      : 178.8
 TTG                     : 3.697
