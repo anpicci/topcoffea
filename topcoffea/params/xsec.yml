@@ -11,10 +11,10 @@
 DYJetsToLL_M_10to50_MLM : 18610.0
 DYJetsToLL_M_50_MLM     : 6025.2
 
+# AN-20-186
 ST_top_t-channel        : 136.02
 ST_antitop_t-channel    : 80.95
 ST_top_s-channel        : 3.68
-
 tbarW_noFullHad         : 19.4674104
 tW_noFullHad            : 19.4674104
 ST_tW_antitop_5f_inclusiveDecays : 35.85
