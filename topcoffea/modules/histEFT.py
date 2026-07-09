@@ -2,6 +2,7 @@
 
 import hist
 import boost_histogram as bh
+import awkward as ak
 import numpy as np
 
 from typing import Any, List, Mapping, Union
@@ -327,12 +328,12 @@ class HistEFT(SparseHist, family=_family):
             if list or array: will use wc_list for WCs
         """
         if wc_list is not None:
-            scaling = efth.remap_coeffs(self.wc_names,wc_list,np.array(self.values(flow=True)[:,1:-1]))
+            scaling = efth.remap_coeffs(self.wc_names,wc_list,np.array(self.values(flow=True)[...,1:-1]))
         else:
-            scaling = self.values(flow=True)[:,1:-1]
+            scaling = np.array(self.values(flow=True)[...,1:-1])
             wc_list = self.wc_names
         #check if any non-flow bins have zero sm contribution
-        if ((scaling[:,0] == 0) & (scaling != 0).any(axis=1)).any():
+        if bool(ak.any((scaling[...,0] == 0) & ak.any(scaling != 0, axis=-1))):
             raise Exception('At least one bin found with no SM contribution and a BSM contribution!')
         skip = 0
         step = 2
@@ -341,15 +342,15 @@ class HistEFT(SparseHist, family=_family):
                 skip += step
                 step += 1
             else:
-                scaling[:,i] /= 2
+                scaling[...,i] /= 2
         if flow=='sum':
-            scaling[-2] += scaling[-1]
-            scaling[1] += scaling[0]
-            scaling = scaling[1:-1]
+            scaling[...,-2,:] += scaling[...,-1,:]
+            scaling[...,1,:] += scaling[...,0,:]
+            scaling = scaling[...,1:-1,:]
         elif flow !='show':
             raise Exception(f'Invalid flow options {flow} selected! Please select from "show" or "sum".')
-        mask = scaling[:,0] != 0
-        scaling[mask,:] = scaling[mask,:]/np.expand_dims(scaling[mask,0], 1) #divide by sm
+        mask = scaling[...,0] != 0
+        scaling[mask,:] = scaling[mask,:]/np.expand_dims(scaling[mask,0], -1) #divide by sm
         return scaling
     @classmethod
     def _read_from_reduce(cls, cat_axes, dense_axes, init_args, dense_hists):

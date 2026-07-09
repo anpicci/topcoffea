@@ -97,3 +97,36 @@ def test_flow():
     assert ef[0] > 0 and ef[-1] > 0
 
     assert np.all(np.abs(en[1:-1] - ef[1:-1]) < 1e-10)
+
+
+def test_make_scaling_handles_awkward_values():
+    local_h = HistEFT(
+        hist.axis.StrCategory([], name="process", growth=True),
+        hist.axis.StrCategory([], name="channel", growth=True),
+        hist.axis.StrCategory([], name="appl", growth=True),
+        hist.axis.Regular(
+            name="ht",
+            label="ht [GeV]",
+            bins=3,
+            start=0,
+            stop=30,
+            flow=True,
+        ),
+        wc_names=["ctG"],
+        label="Events",
+    )
+    for appl, scale in [("isSR_2l", 1.0), ("isAR_2l", 0.5)]:
+        local_h.fill(
+            process="ttH",
+            channel="ch0",
+            appl=appl,
+            ht=np.array([1, 15, 25]),
+            eft_coeff=scale * np.array([[2, 4, 8], [3, 6, 12], [4, 8, 16]]),
+        )
+
+    scaling = local_h[{"process": "ttH", "channel": "ch0"}].make_scaling()
+    scaling_np = np.asarray(scaling)
+
+    assert scaling_np.shape == (2, 5, 3)
+    assert np.allclose(scaling_np[:, 1:-1, 0], 1.0)
+    assert np.all(np.isfinite(scaling_np[:, 1:-1]))
