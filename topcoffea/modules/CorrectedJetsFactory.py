@@ -9,6 +9,8 @@ _stack_parts = ["jec", "junc", "jer", "jersf"]
 _MIN_JET_ENERGY = numpy.array(1e-2, dtype=numpy.float32)
 _ONE_F32 = numpy.array(1.0, dtype=numpy.float32)
 _ZERO_F32 = numpy.array(0.0, dtype=numpy.float32)
+_JER_VARIATION_INPUT = "systematic"
+_JER_VARIATIONS = ("nom", "up", "down")
 _JERSF_FORM = {
     "class": "NumpyArray",
     "inner_shape": [3],
@@ -140,7 +142,15 @@ def rawvar_jec(jecval, rawvar, lazy_cache):
         cache=lazy_cache,
     )
 
-def get_corr_inputs(jets, corr_obj, name_map, run, cache=None, corrections=None):
+def get_corr_inputs(
+    jets,
+    corr_obj,
+    name_map,
+    run,
+    cache=None,
+    corrections=None,
+    variation=None,
+):
     """
     Helper function for getting values of input variables
     given a dictionary and a correction object.
@@ -156,8 +166,13 @@ def get_corr_inputs(jets, corr_obj, name_map, run, cache=None, corrections=None)
         )
 
     for inp in corr_obj.inputs:
-        if inp.name == "systematic":
-            continue
+        if inp.name == _JER_VARIATION_INPUT:
+            if variation is None:
+                raise ValueError(
+                    f'Correction "{corr_obj.name}" declares a "{_JER_VARIATION_INPUT}" '
+                    "input, but no variation was provided."
+                )
+            input_value = variation
         elif inp.name == "run":
             input_value = run_flat
         elif inp.name == "JetPt" and corrections is not None:
@@ -170,6 +185,113 @@ def get_corr_inputs(jets, corr_obj, name_map, run, cache=None, corrections=None)
         input_values.append(input_value)
 
     return input_values
+
+
+def _correction_input_signature(corr_obj):
+    return tuple((inp.name, inp.type) for inp in corr_obj.inputs)
+
+
+def _validate_jer_sf_schema(corr_obj, name_map, context):
+    if not hasattr(corr_obj, "inputs") or not callable(getattr(corr_obj, "evaluate", None)):
+        raise ValueError(f"{context} is not a usable correctionlib correction.")
+    if not hasattr(corr_obj, "output") or corr_obj.output.type != "real":
+        raise ValueError(f"{context} must have a real correctionlib output.")
+
+    for inp in corr_obj.inputs:
+        if inp.name == _JER_VARIATION_INPUT:
+            if inp.type != "string":
+                raise ValueError(
+                    f"{context} declares {_JER_VARIATION_INPUT} with unsupported type "
+                    f'"{inp.type}".'
+                )
+        elif inp.name == "run":
+            if inp.type != "int":
+                raise ValueError(
+                    f'{context} declares run with unsupported type "{inp.type}".'
+                )
+        elif inp.name not in name_map:
+            raise ValueError(
+                f'{context} declares input "{inp.name}" without a factory name_map entry.'
+            )
+        elif inp.type != "real":
+            raise ValueError(
+                f'{context} declares input "{inp.name}" with unsupported type "{inp.type}".'
+            )
+
+
+def _get_jer_sf_companion(scale_factor, correction_set, name_map):
+    scale_factor_name = scale_factor.name
+    companion_name = scale_factor_name.replace(
+        "_ScaleFactor_", "_SFUncertainty_", 1
+    )
+    if companion_name == scale_factor_name:
+        raise ValueError(
+            f'JER ScaleFactor correction "{scale_factor_name}" does not contain the '
+            "required _ScaleFactor_ name segment."
+        )
+
+    try:
+        companion = correction_set[companion_name]
+    except (IndexError, KeyError) as exc:
+        raise ValueError(
+            f'JER ScaleFactor correction "{scale_factor_name}" requires paired '
+            f'SFUncertainty correction "{companion_name}", but it is absent from '
+            "the loaded correction set."
+        ) from exc
+
+    _validate_jer_sf_schema(companion, name_map, f'JER SFUncertainty "{companion_name}"')
+    if _correction_input_signature(companion) != _correction_input_signature(scale_factor):
+        raise ValueError(
+            f'JER SFUncertainty correction "{companion_name}" has inputs '
+            f"{_correction_input_signature(companion)} incompatible with ScaleFactor "
+            f'"{scale_factor_name}" inputs {_correction_input_signature(scale_factor)}.'
+        )
+    return companion
+
+
+def get_jer_sf_variations(jets, scale_factor, correction_set, name_map, run):
+    """Evaluate JER scale factors as nominal, up, and down in factory order."""
+    _validate_jer_sf_schema(
+        scale_factor, name_map, f'JER ScaleFactor "{scale_factor.name}"'
+    )
+
+    has_explicit_variation = any(
+        inp.name == _JER_VARIATION_INPUT for inp in scale_factor.inputs
+    )
+    if has_explicit_variation:
+        return tuple(
+            scale_factor.evaluate(
+                *get_corr_inputs(
+                    jets=jets,
+                    corr_obj=scale_factor,
+                    name_map=name_map,
+                    run=run,
+                    variation=variation,
+                )
+            ).astype(dtype=numpy.float32)
+            for variation in _JER_VARIATIONS
+        )
+
+    nominal_inputs = get_corr_inputs(
+        jets=jets,
+        corr_obj=scale_factor,
+        name_map=name_map,
+        run=run,
+    )
+    nominal = scale_factor.evaluate(*nominal_inputs).astype(dtype=numpy.float32)
+    companion = _get_jer_sf_companion(scale_factor, correction_set, name_map)
+    uncertainty_inputs = get_corr_inputs(
+        jets=jets,
+        corr_obj=companion,
+        name_map=name_map,
+        run=run,
+    )
+    uncertainty = companion.evaluate(*uncertainty_inputs).astype(dtype=numpy.float32)
+    return (
+        nominal,
+        nominal * (1.0 + uncertainty),
+        nominal * (1.0 - uncertainty),
+    )
 
 
 class CorrectedJetsFactory(object):
@@ -394,20 +516,29 @@ class CorrectedJetsFactory(object):
                     outtag = "jet_energy_resolution"
                     jer_entry = jer_entry.replace("SF", "ScaleFactor")
                     sf = self.corrections[jer_entry]
-                    inputs = get_corr_inputs(jets=jerjets, corr_obj=sf, name_map=jer_name_map, run=self.run)
                     if "ScaleFactor" in jer_entry:
                         outtag += "_scale_factor"
-                        correction = awkward.Array([
-                            sf.evaluate(*inputs, "nom").astype(dtype=numpy.float32),
-                            sf.evaluate(*inputs, "up").astype(dtype=numpy.float32),
-                            sf.evaluate(*inputs, "down").astype(dtype=numpy.float32),
-                        ])
+                        correction = awkward.Array(
+                            get_jer_sf_variations(
+                                jets=jerjets,
+                                scale_factor=sf,
+                                correction_set=self.jec_stack.cset,
+                                name_map=jer_name_map,
+                                run=self.run,
+                            )
+                        )
                         correction = awkward.concatenate([
                             correction[0][:, numpy.newaxis],
                             correction[1][:, numpy.newaxis],
                             correction[2][:, numpy.newaxis]
                         ], axis=1)
                     else:
+                        inputs = get_corr_inputs(
+                            jets=jerjets,
+                            corr_obj=sf,
+                            name_map=jer_name_map,
+                            run=self.run,
+                        )
                         correction = awkward.Array(
                             sf.evaluate(*inputs).astype(dtype=numpy.float32),
                         )
