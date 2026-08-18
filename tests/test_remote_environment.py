@@ -2,6 +2,7 @@ import copy
 import io
 import json
 import sys
+import subprocess
 import tarfile
 import types
 from pathlib import Path
@@ -138,3 +139,115 @@ def test_effective_fingerprint_includes_resolved_spec_and_editable_source(monkey
     third = remote.resolve_environment_request(extra_pip=["example=2"])
     assert first["environment_fingerprint"] != second["environment_fingerprint"]
     assert second["environment_fingerprint"] != third["environment_fingerprint"]
+
+
+def _git(arguments, cwd):
+    subprocess.check_call(["git", *arguments], cwd=cwd)
+
+
+def _synthetic_watched_repository(tmp_path):
+    repository = tmp_path / "repository"
+    watched = repository / "package"
+    watched.mkdir(parents=True)
+    (watched / "tracked.py").write_text("value = 1\n", encoding="utf-8")
+    (repository / "setup.py").write_text("# synthetic\n", encoding="utf-8")
+    (repository / ".gitignore").write_text("package/ignored.txt\n", encoding="utf-8")
+    _git(["init"], repository)
+    _git(["config", "user.email", "test@example.invalid"], repository)
+    _git(["config", "user.name", "Test User"], repository)
+    _git(["add", "package/tracked.py", "setup.py", ".gitignore"], repository)
+    _git(["commit", "-m", "initial"], repository)
+    return repository
+
+
+def test_watched_untracked_files_change_source_and_environment_identity(tmp_path, monkeypatch):
+    monkeypatch.syspath_prepend(str(Path(__file__).resolve().parents[1]))
+    from topcoffea.modules import remote_environment as remote
+
+    repository = _synthetic_watched_repository(tmp_path)
+    watched_paths = ["package", "setup.py"]
+    baseline, baseline_dirty, baseline_untracked = remote._watched_source_fingerprint(
+        str(repository), watched_paths
+    )
+    assert not baseline_dirty
+    assert baseline_untracked == []
+
+    generated = repository / "package" / "generated.py"
+    generated.write_text("answer = 1\n", encoding="utf-8")
+    added, added_dirty, added_untracked = remote._watched_source_fingerprint(str(repository), watched_paths)
+    assert not added_dirty
+    assert added != baseline
+    assert added_untracked == [{"path": "package/generated.py", "sha256": remote._sha256_file(generated)}]
+
+    monkeypatch.setattr(remote, "_check_current_env", lambda spec: spec)
+    state = [{"package_name": "synthetic", "git_commit": "commit-a", "watched_source_fingerprint": baseline, "clean_or_dirty": "clean"}]
+    monkeypatch.setattr(remote, "_editable_package_states", lambda _watch: state)
+    baseline_request = remote.resolve_environment_request()
+    state[0] = {**state[0], "watched_source_fingerprint": added}
+    added_request = remote.resolve_environment_request()
+    assert added_request["environment_fingerprint"] != baseline_request["environment_fingerprint"]
+
+    generated.write_text("answer = 2\n", encoding="utf-8")
+    modified, _, _ = remote._watched_source_fingerprint(str(repository), watched_paths)
+    assert modified != added
+
+    renamed = repository / "package" / "renamed.py"
+    generated.rename(renamed)
+    renamed_fingerprint, _, renamed_untracked = remote._watched_source_fingerprint(str(repository), watched_paths)
+    assert renamed_fingerprint != modified
+    assert renamed_untracked[0]["path"] == "package/renamed.py"
+
+    renamed.unlink()
+    restored, _, restored_untracked = remote._watched_source_fingerprint(str(repository), watched_paths)
+    assert restored == baseline
+    assert restored_untracked == []
+
+    (repository / "package" / "small.json.gz").write_bytes(b"tiny gzip-like payload")
+    payload_fingerprint, _, _ = remote._watched_source_fingerprint(str(repository), watched_paths)
+    assert payload_fingerprint != baseline
+
+
+def test_untracked_scope_ignored_rules_and_strict_staleness(tmp_path, monkeypatch):
+    monkeypatch.syspath_prepend(str(Path(__file__).resolve().parents[1]))
+    from topcoffea.modules import remote_environment as remote
+
+    repository = _synthetic_watched_repository(tmp_path)
+    watched_paths = ["package", "setup.py"]
+    baseline, _, _ = remote._watched_source_fingerprint(str(repository), watched_paths)
+    (repository / "outside.log").write_text("irrelevant\n", encoding="utf-8")
+    outside, _, _ = remote._watched_source_fingerprint(str(repository), watched_paths)
+    assert outside == baseline
+    (repository / "package" / "ignored.txt").write_text("ignored\n", encoding="utf-8")
+    ignored, _, ignored_files = remote._watched_source_fingerprint(str(repository), watched_paths)
+    assert ignored == baseline
+    assert ignored_files == []
+
+    tracked = repository / "package" / "tracked.py"
+    tracked.write_text("value = 2\n", encoding="utf-8")
+    tracked_changed, dirty, untracked_files = remote._watched_source_fingerprint(str(repository), watched_paths)
+    assert dirty
+    assert not untracked_files
+    assert tracked_changed != baseline
+
+    package_state = {
+        "package_name": "synthetic",
+        "git_commit": "commit-a",
+        "watched_source_fingerprint": baseline,
+        "clean_or_dirty": "clean",
+        "untracked_relevant_count": 1,
+        "untracked_relevant_fingerprint": "untracked-a",
+    }
+    archive = tmp_path / "synthetic.tar.gz"
+    _synthetic_archive(archive)
+    old_request = _request("a" * 64)
+    old_request["editable_packages"] = [package_state]
+    remote.write_archive_manifest(str(archive), old_request)
+    manifest = json.loads(Path(f"{archive}.manifest.json").read_text(encoding="utf-8"))
+    assert manifest["editable_packages"][0]["untracked_relevant_count"] == 1
+    assert manifest["editable_packages"][0]["untracked_relevant_fingerprint"] == "untracked-a"
+
+    changed_request = _request("b" * 64)
+    strict = remote.validate_environment_archive(str(archive), changed_request)
+    assert strict["status"] == "stale"
+    snapshot = remote.validate_environment_archive(str(archive), changed_request, snapshot=True)
+    assert snapshot["usable"]

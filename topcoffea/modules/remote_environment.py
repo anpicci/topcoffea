@@ -342,7 +342,29 @@ def _run_git_text(path: str, arguments: List[str]) -> str:
     return subprocess.check_output(["git", *arguments], cwd=path, stdin=subprocess.DEVNULL).decode().strip()
 
 
-def _watched_source_fingerprint(path: str, watched_paths: List[str]) -> tuple[str, bool]:
+def _relevant_untracked_files(path: str, watched_paths: List[str]) -> List[Dict[str, str]]:
+    """Return non-ignored untracked regular files below declared watch paths."""
+    try:
+        raw_paths = subprocess.check_output(
+            ["git", "ls-files", "--others", "--exclude-standard", "-z", "--", *watched_paths],
+            cwd=path,
+            stdin=subprocess.DEVNULL,
+        )
+    except (OSError, subprocess.CalledProcessError) as exc:
+        raise RuntimeError(f"Could not enumerate untracked source files for {path}: {exc}") from exc
+
+    files = []
+    for relative_path in sorted(item.decode() for item in raw_paths.split(b"\0") if item):
+        source = Path(path, relative_path)
+        if source.is_symlink() or not source.is_file():
+            raise RuntimeError(
+                "Unsupported non-regular untracked watched source entry: {}".format(relative_path)
+            )
+        files.append({"path": relative_path, "sha256": _sha256_file(source)})
+    return files
+
+
+def _watched_source_fingerprint(path: str, watched_paths: List[str]) -> tuple[str, bool, List[Dict[str, str]]]:
     pathspecs = [":(top){}".format(item) for item in watched_paths]
     try:
         commit = _run_git_text(path, ["rev-parse", "HEAD"])
@@ -359,7 +381,10 @@ def _watched_source_fingerprint(path: str, watched_paths: List[str]) -> tuple[st
         if source.is_file():
             digest.update(name.encode())
             digest.update(_sha256_file(source).encode())
-    return digest.hexdigest(), bool(status)
+    untracked_files = _relevant_untracked_files(path, watched_paths)
+    untracked_payload = json.dumps(untracked_files, sort_keys=True, separators=(",", ":"))
+    digest.update(untracked_payload.encode())
+    return digest.hexdigest(), bool(status), untracked_files
 
 
 def _editable_package_states(watch_config: Dict[str, List[str]]) -> List[Dict[str, Any]]:
@@ -370,13 +395,18 @@ def _editable_package_states(watch_config: Dict[str, List[str]]) -> List[Dict[st
         if not location:
             continue
         commit = _run_git_text(location, ["rev-parse", "HEAD"])
-        source_fingerprint, dirty = _watched_source_fingerprint(location, watched_paths)
+        source_fingerprint, dirty, untracked_files = _watched_source_fingerprint(location, watched_paths)
+        untracked_fingerprint = hashlib.sha256(
+            json.dumps(untracked_files, sort_keys=True, separators=(",", ":")).encode()
+        ).hexdigest()
         states.append(
             {
                 "package_name": package_name,
                 "git_commit": commit,
                 "watched_source_fingerprint": source_fingerprint,
                 "clean_or_dirty": "dirty" if dirty else "clean",
+                "untracked_relevant_count": len(untracked_files),
+                "untracked_relevant_fingerprint": untracked_fingerprint,
             }
         )
     return states
