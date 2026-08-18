@@ -182,6 +182,8 @@ def get_corr_inputs(
         else:
             input_value = awkward.flatten(jets[name_map[inp.name]])
 
+        if inp.name != _JER_VARIATION_INPUT:
+            input_value = awkward.to_numpy(input_value)
         input_values.append(input_value)
 
     return input_values

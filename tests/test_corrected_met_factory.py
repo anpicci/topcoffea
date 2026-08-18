@@ -1,12 +1,19 @@
 import inspect
+import json
 import math
+from types import SimpleNamespace
 
 import awkward as ak
+import correctionlib
 import numpy as np
 import pytest
 
 from topcoffea.modules.CorrectedMETFactory import CorrectedMETFactory
-from topcoffea.modules.Type1CorrectedMETFactory import Type1CorrectedMETFactory
+from topcoffea.modules.Type1CorrectedMETFactory import (
+    Type1CorrectedMETFactory,
+    _evaluate_jec_sequence,
+    _input_values,
+)
 
 
 NAME_MAP = {
@@ -62,6 +69,67 @@ class _PtScaledCorrection:
         jet_pt = np.asarray(inputs[0], dtype=np.float32)
         self.seen_pt.append(jet_pt.copy())
         return jet_pt / self.reference_pt
+
+
+class _RecordingCorrection:
+    def __init__(self, correction):
+        self.correction = correction
+        self.inputs = correction.inputs
+        self.calls = []
+
+    def evaluate(self, *inputs):
+        self.calls.append(inputs)
+        return self.correction.evaluate(*inputs)
+
+
+def _synthetic_type1_cset():
+    def correction(name, data, inputs=None):
+        return {
+            "name": name,
+            "description": "synthetic Type-1 correction",
+            "version": 1,
+            "inputs": inputs or [{"name": "JetPt", "type": "real"}],
+            "output": {"name": "correction", "type": "real"},
+            "data": data,
+        }
+
+    return correctionlib.CorrectionSet.from_string(
+        json.dumps(
+            {
+                "schema_version": 2,
+                "corrections": [
+                    correction("test_l1", 2.0),
+                    correction(
+                        "test_l2",
+                        {
+                            "nodetype": "formula",
+                            "expression": "x / 10.0",
+                            "parser": "TFormula",
+                            "variables": ["JetPt"],
+                        },
+                    ),
+                    correction(
+                        "test_run",
+                        1.0,
+                        inputs=[
+                            {"name": "run", "type": "int"},
+                            {"name": "JetPt", "type": "real"},
+                        ],
+                    ),
+                ],
+            }
+        )
+    )
+
+
+def _irregular_type1_jets():
+    return ak.Array(
+        [
+            [{"pt": 10.0}, {"pt": 20.0}],
+            [],
+            [{"pt": 30.0}],
+        ]
+    )
 
 
 class _FakeJECStack:
@@ -542,3 +610,76 @@ def test_type1_met_jes_jer_variations_vary_jet_full_leg_only():
     # JES_Total up/down use the same public field shape.
     assert _value(corrected.JES_Total.up.pt) == pytest.approx(39.6)
     assert _value(corrected.JES_Total.down.pt) == pytest.approx(61.2)
+
+
+def test_type1_input_values_cross_the_awkward1_numpy_boundary():
+    jets = _irregular_type1_jets()
+    correction_set = _synthetic_type1_cset()
+    correction = correction_set["test_run"]
+    flat_awkward = ak.flatten(jets.pt)
+
+    assert isinstance(flat_awkward, ak.highlevel.Array)
+    assert not hasattr(ak, "transform")
+
+    inputs = _input_values(jets, correction, {"JetPt": "pt"}, run=123)
+
+    assert all(isinstance(value, np.ndarray) for value in inputs)
+    assert not any(isinstance(value, ak.highlevel.Array) for value in inputs)
+    np.testing.assert_array_equal(inputs[0], np.array([123, 123, 123], dtype=np.int32))
+    np.testing.assert_allclose(inputs[1], np.array([10.0, 20.0, 30.0]))
+    np.testing.assert_allclose(correction.evaluate(*inputs), np.ones(3))
+
+
+def test_type1_jec_sequence_preserves_order_cumulative_product_and_counts():
+    jets = _irregular_type1_jets()
+    correction_set = _synthetic_type1_cset()
+    l1 = _RecordingCorrection(correction_set["test_l1"])
+    l2 = _RecordingCorrection(correction_set["test_l2"])
+    stack = SimpleNamespace(corrections={"test_l1": l1, "test_l2": l2})
+
+    result = _evaluate_jec_sequence(
+        jets,
+        {"JetPt": "pt"},
+        stack,
+        ["test_l1", "test_l2"],
+        run=None,
+    )
+
+    flat_pt = np.array([10.0, 20.0, 30.0])
+    expected_l1 = correction_set["test_l1"].evaluate(flat_pt).astype(np.float32)
+    expected_l2_input = (expected_l1 * flat_pt).astype(np.float32)
+    expected_l2 = correction_set["test_l2"].evaluate(expected_l2_input).astype(
+        np.float32
+    )
+    expected = (expected_l1 * expected_l2).astype(np.float32)
+
+    assert ak.to_list(ak.num(result)) == [2, 0, 1]
+    np.testing.assert_allclose(ak.to_numpy(ak.flatten(result)), expected)
+    np.testing.assert_allclose(l1.calls[0][0], flat_pt)
+    np.testing.assert_allclose(l2.calls[0][0], expected_l2_input)
+    for call in l1.calls + l2.calls:
+        assert all(isinstance(value, np.ndarray) for value in call)
+        assert not any(isinstance(value, ak.highlevel.Array) for value in call)
+    assert ak.to_numpy(ak.flatten(result)).dtype == np.dtype(np.float32)
+
+
+def test_type1_jec_sequence_supports_all_zero_jet_events():
+    jets = _irregular_type1_jets()[:, :0]
+    correction_set = _synthetic_type1_cset()
+    stack = SimpleNamespace(
+        corrections={
+            "test_l1": correction_set["test_l1"],
+            "test_l2": correction_set["test_l2"],
+        }
+    )
+
+    result = _evaluate_jec_sequence(
+        jets,
+        {"JetPt": "pt"},
+        stack,
+        ["test_l1", "test_l2"],
+        run=None,
+    )
+
+    assert ak.to_list(result) == [[], [], []]
+    assert ak.to_numpy(ak.flatten(result)).dtype == np.dtype(np.float32)

@@ -78,7 +78,7 @@ def _input_values(objs, corr_obj, name_map, run, current_correction=None):
             )
         else:
             input_value = awkward.flatten(objs[name_map[inp.name]])
-        input_values.append(input_value)
+        input_values.append(awkward.to_numpy(input_value))
 
     return input_values
 
