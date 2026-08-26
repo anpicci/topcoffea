@@ -297,6 +297,12 @@ def get_jer_sf_variations(jets, scale_factor, correction_set, name_map, run):
 
 
 class CorrectedJetsFactory(object):
+    """Build corrected Awkward jet collections from a configured ``JECStack``.
+
+    The factory supports correctionlib and legacy stack inputs and exposes JER
+    variations in nominal/up/down order. A correctionlib payload with a paired
+    scale-factor schema must provide a compatible ``SFUncertainty`` companion.
+    """
     def __init__(
         self,
         name_map,
@@ -368,6 +374,7 @@ class CorrectedJetsFactory(object):
             )
 
     def build(self, jets, lazy_cache):
+        """Return corrected jets with configured JER/JES variation records."""
         if lazy_cache is None:
             raise Exception("CorrectedJetsFactory requires an awkward-array cache to function correctly.")
         lazy_cache = awkward._util.MappingProxy.maybe_wrap(lazy_cache)

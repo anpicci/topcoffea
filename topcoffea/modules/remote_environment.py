@@ -1,4 +1,10 @@
 #! /usr/bin/env python
+"""Build and validate fingerprinted remote-executor environment archives.
+
+Public callers should use :func:`resolve_environment_request`,
+:func:`validate_environment_archive`, or :func:`get_environment`. Private
+helpers own local Git inspection, packaging, and cache maintenance.
+"""
 import copy
 import datetime
 import json
@@ -458,6 +464,7 @@ def resolve_environment_request(
 
 
 def environment_archive_path(environment_fingerprint: str) -> str:
+    """Return the cache path derived from a full environment fingerprint."""
     return str(env_dir_cache / f"env_spec_{environment_fingerprint[:16]}.tar.gz")
 
 
@@ -466,6 +473,7 @@ def _manifest_path(archive_path: str) -> Path:
 
 
 def write_archive_manifest(archive_path: str, environment_request: Dict[str, Any]) -> str:
+    """Atomically write the schema-v1 integrity/provenance manifest."""
     archive = Path(archive_path)
     manifest = {
         "schema_version": MANIFEST_SCHEMA_VERSION,
