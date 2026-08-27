@@ -4,6 +4,39 @@ This page covers correction contracts analysts and developers are expected to
 call or extend. Source signatures remain authoritative; this page owns semantic
 and schema details that signatures do not express.
 
+## Physics mechanism and policy boundary
+
+`topcoffea` owns reusable evaluation algorithms, array and schema contracts,
+corrected-object construction, variation products, and packaged shared payload
+interfaces. A consuming analysis owns the concrete era, collection, tag,
+working point, payload family, enabled variation, and downstream selection or
+category policy. In particular, the forward stochastic-JER option is a factory
+mechanism here; its default and activation for the maintained `topeft` analysis
+belong to `topeft`.
+
+This page describes what each mechanism changes. It does not infer why an
+analysis chose a calibration family, working point, mass window, uncertainty
+subset, or era policy from the implementation alone.
+
+## Shared weight and selection mechanisms
+
+`topcoffea.modules.corrections` supplies reusable b-tag Method1a, pileup,
+parton-shower, and renormalization/factorization-scale weight mechanisms. The
+caller supplies the applicable era, sample branches, tagger or working point,
+and activation policy. Central and exposed variations change the event weights
+returned to the consumer; the consuming analysis decides which histogram
+templates or nuisance groups use them.
+
+`topcoffea.modules.object_selection` supplies maintained tight-jet and Run-3
+jet-ID predicates. `topcoffea.modules.event_selection` supplies generic
+dataset-overlap, SFOS, and Z-window utilities. Their input/output and failure
+contracts are shared here. Concrete jet cuts, trigger lists, dataset priority,
+mass windows, and CR/SR use remain analysis policy.
+
+The LHE scale-weight helper does not make the deprecated `topeft`
+renormalization-envelope option active; envelope and downstream template policy
+belong to the caller.
+
 ## Correctionlib NumPy boundary
 
 Correctionlib evaluators receive flat NumPy arrays, not Awkward-1 high-level
@@ -72,6 +105,50 @@ variations into MET, and preserves available unclustered-energy variations.
 `uncertainties()` reports configured variation names. Inputs must satisfy the
 factory's `name_map` and Awkward collection contracts.
 
+The current `topeft` Type-1 path consumes the maintained helper in
+`topcoffea.modules.corrections`. The older `CorrectedMETFactory` remains a
+maintained specialist/noncore interface and must not be substituted as the
+current Type-1 owner without a proven consumer.
+
+## Shared default and payload authorities
+
+`topcoffea/params/params.json` owns shared era luminosity values and the
+packaged tagger/era/working-point values. Files under `topcoffea/data` and
+`topcoffea/params` are package payload
+authorities selected through maintained loaders. Consumers should link these
+files rather than copying numeric tables into analysis prose.
+
+Payload provenance may name a POG or calibration source. That identifies the
+external authority without re-establishing its derivation in this repository.
+
+The maintained concrete authorities are
+[`params.json`](../topcoffea/params/params.json) and the packaged
+[`data/`](../topcoffea/data) tree. Mechanisms without one universal payload
+default are parameterized by the caller's era, collection, and selector.
+
+## Representative shared-helper use
+
+The tight-jet predicate is parameterized rather than tied to a `topeft`
+working point:
+
+```python
+from topcoffea.modules.object_selection import is_tight_jet
+
+mask = is_tight_jet(
+    jets.pt,
+    jets.eta,
+    jets.jetId,
+    pt_cut=30.0,
+    eta_cut=2.4,
+    id_cut=1,
+)
+```
+
+The numbers illustrate the call shape; they are not a shared analysis default.
+The consumer owns its thresholds, and the
+[physics extension guide](physics_extension_guides.md) owns the safe mechanism
+change route.
+
 ## Packaged Run 3 JME payloads
 
 | Year token | Package directory |
@@ -99,3 +176,9 @@ and nominal/up/down order, and update focused tests:
 For the vendored muon backend, also update `VERSION.md` with upstream identity
 and the exact adapter patch. Do not alter vendored physics formulas while
 changing only the array boundary.
+
+Supported mechanism changes and the corresponding consumer boundary are
+collected in [physics extension guides](physics_extension_guides.md). Concrete
+`topeft` policy and downstream use are described in
+[topeft integration](topeft_integration.md) and the consuming
+[`topeft` correction reference](https://github.com/TopEFT/topeft/blob/HEAD/docs/reference/corrections_weights_and_systematics.md).

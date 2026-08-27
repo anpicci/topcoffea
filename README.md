@@ -16,6 +16,8 @@ Developer references for the current feature contracts:
 
 * [Remote environment archive contract](docs/environment_archive_contract.md)
 * [Correction interfaces reference](docs/correction_interfaces.md)
+* [EFT and histogram interfaces](docs/eft_interfaces.md)
+* [Physics extension guides](docs/physics_extension_guides.md)
 * [topeft integration](docs/topeft_integration.md)
 
 ## Remote environment compatibility
