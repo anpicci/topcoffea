@@ -9,6 +9,15 @@ from topcoffea.modules.paths import topcoffea_path
 from topcoffea.modules.get_param_from_jsons import GetParam
 get_tc_param = GetParam(topcoffea_path("params/params.json"))
 
+
+def _evaluate_correctionlib(correction, *args):
+    """Evaluate correctionlib without exposing it to Awkward-1 arrays."""
+    numpy_args = tuple(
+        ak.to_numpy(arg) if isinstance(arg, ak.highlevel.Array) else arg
+        for arg in args
+    )
+    return correction.evaluate(*numpy_args)
+
 clib_year_map = {
     "2016APV": "2016preVFP_UL",
     "2016preVFP": "2016preVFP_UL",
@@ -91,7 +100,9 @@ def btag_sf_eval(jet_collection,wp,year,method,syst):
     except KeyError:
         print(f"{method} not found.")
 
-    sf_flat = ceval[method].evaluate(syst,wp,flav_flat,abseta_flat,pt_flat)
+    sf_flat = _evaluate_correctionlib(
+        ceval[method], syst, wp, flav_flat, abseta_flat, pt_flat
+    )
     sf = ak.unflatten(sf_flat,ak.num(jet_collection.pt))
 
     return sf
@@ -169,7 +180,7 @@ def GetPUSF(nTrueInt, year, var='nominal'):
     ceval = correctionlib.CorrectionSet.from_file(json_path)
 
     pucorr_tag = goldenJSON_map[year]
-    pu_corr = ceval[pucorr_tag].evaluate(nTrueInt, var)
+    pu_corr = _evaluate_correctionlib(ceval[pucorr_tag], nTrueInt, var)
     return pu_corr
 
 

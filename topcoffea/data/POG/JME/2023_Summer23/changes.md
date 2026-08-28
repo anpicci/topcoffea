@@ -1,11 +1,11 @@
-## Changes: 2026-04-13 ([Summer23Prompt23] Update JEC version to V3 with minor bug fixes)
+## Changes: 2026-07-15 (\[Summer23Prompt23_RunCv1234_JRV2\] Minor fix to the JER SF Uncertainty)
 
-Merge Request: [!2](https://gitlab.cern.ch/cms-analysis-corrections/JME/Run3-23CSep23-Summer23-NanoAODv12/-/merge_requests/2)
+Merge Request: [!4](https://gitlab.cern.ch/cms-analysis-corrections/JME/Run3-23CSep23-Summer23-NanoAODv12/-/merge_requests/4)
 
-In this MR, we update the JEC version from V2 to V3, to match the recommendation from the [jerc-webpage](https://cms-jerc.web.cern.ch/Recommendations/#2023-prebpix). 
+In the current JSON format, JEC and JER uncertainties are stored as symmetric values. With `JetEta` and `JetPt` as inputs, the JSON returns a single `unc` value, which is then applied symmetrically (e.g., `SF(up/down) = SF(nom) x (1 +/- unc)`).
 
-The new JEC version (V3) is identical to the previous one (V2) except for a bug fix in the `L2Relative` text files. In extremely rare cases, the V2 `L2Relative` JECs exhibited asymptotic behavior in a few high eta bins and a very tiny pT bin, leading to abnormally large corrected jet pT values. The fraction of affected events is exceedingly small (10e-7%), so the majority of analyses will not observe any noticeable effect. More information about this issue can be found in the corresponding [Gitlab issue](https://gitlab.cern.ch/cms-jetmet/coordination/coordination/-/issues/153#note_9486099) and the [presentation slides](https://indico.cern.ch/event/1545816/contributions/6507348/attachments/3066299/5423894/cms-jerc-news_13May2025.pdf#page=2). This issue is now fixed.
+For the 2016-2022 campaigns, the JER SF uncertainties in the TXT files were symmetric, so choosing either the "up" or "down" column during JSON conversion did not affect the result. However, the 2023-2026 JER `SFUncertainty` TXT files contain asymmetric uncertainties. In edge cases (such as high $\eta$ and low $p_T$), a SF might be evaluated as `1.012^{+0.165}_{-0.012}`. This asymmetry occurs because the down uncertainty was artificially bounded to prevent `SF(down)` from falling below 1.0. For the bulk of the typical analysis phase space, the "up" and "down" uncertainties are approximately symmetric, making this a relatively minor effect for most analyses.
 
-Additionally, we now include the reduced set of JES uncertainties ("Regrouped") for `AK8PFPuppi` jets, cloned from `AK4PFPuppi`.
+To preserve the true magnitude of the systematic error, the safest approach is to store the unbounded "up" uncertainty in the JSON. While this is already implemented for the 2024-2026 JSONs (in the [2024](https://gitlab.cern.ch/cms-analysis-corrections/JME/Run3-24CDEReprocessingFGHIPrompt-Summer24-NanoAODv15/-/merge_requests/3), [2025](https://gitlab.cern.ch/cms-analysis-corrections/JME/Run3-25Prompt-Summer24-NanoAODv15/-/merge_requests/3), and [2026](https://gitlab.cern.ch/cms-analysis-corrections/JME/Run3-26Prompt-Summer24-NanoAODv15/-/merge_requests/1) MRs), it was missed for the 2023 files.
 
-Lastly, we fixed a minor bug reported [here](https://cms-talk.web.cern.ch/t/jerc-2025-correctionlib-bug/142489) for 2025, that affected all Run 3 `.json` files: previously, the last `run` of the last era for this tag, i.e. `run==369802` was not included in the run range for `L2L3Residual` JECs. This has now been fixed.
+This MR fixes this minor issue in the conversion script, ensuring we now consistently retrieve and store the JER SF "up" uncertainty in the JSON files. The new tag version is: `Summer23Prompt23_RunCv1234_JRV3_MC`.

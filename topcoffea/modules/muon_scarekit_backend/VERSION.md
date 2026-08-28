@@ -28,6 +28,9 @@ Fixing step2 polynomial fits binning, small fixes in ScaRe closure plots and ran
 
 Local patches:
 
+- correctionlib evaluation converts Awkward high-level inputs to NumPy at the
+  backend boundary before calling `Correction.evaluate`. This adapter preserves
+  the vendored formulas while avoiding unsupported Awkward-1 inputs.
 - `pt_resol(...)` no longer exposes or forwards the stale `rnd_gen`
   argument.  Upstream commit `d393332` moved random smearing to the
   correctionlib `RandomSmearing` payload and removed `rnd_gen` from

@@ -1,9 +1,12 @@
-## Changes: 2026-04-13 ([Summer22EE_22Sep2023] Update format of L2L3Res JECs and include Regrouped for AK8 jets)
+## Changes: 2026-06-05 (Split JER SF nom and up/down tags)
 
-Merge Request: [!3](https://gitlab.cern.ch/cms-analysis-corrections/JME/Run3-22EFGSep23-Summer22EE-NanoAODv12/-/merge_requests/3)
+Merge Request: [!4](https://gitlab.cern.ch/cms-analysis-corrections/JME/Run3-22EFGSep23-Summer22EE-NanoAODv12/-/merge_requests/4)
 
-In this MR, we update the format of the `L2L3Residual` corrections for DATA to be run-dependent, in order to be consistent with the format used in other Run 3 years.
+In this MR, we have reorganised tags for JER:
 
-Additionally, we now include the reduced set of JES uncertainties ("Regrouped") for `AK8PFPuppi` jets, cloned from `AK4PFPuppi`.
+- Split JER nominal and up/down SF tags
+- Homogeneous content (formula and arguments) for all years
 
-Apart from these changes, the JEC and JER versions remain unchanged (`Summer22EE_22Sep2023_V3` and `Summer22EE_22Sep2023_JRV1`, respectively).
+More details are available in [JRDatabase MR-30](https://github.com/cms-jet/JRDatabase/pull/30).
+
+cc: @izisopou, @anmalara, @nbinnorj
