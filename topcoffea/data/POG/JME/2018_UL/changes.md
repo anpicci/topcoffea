@@ -1,6 +1,6 @@
-## Changes: 2026-06-05 (Split JER SF nom and up/down tags)
+## Changes: 2026-06-10 (adopted to newJERFormats)
 
-Merge Request: [!4](https://gitlab.cern.ch/cms-analysis-corrections/JME/Run3-22EFGSep23-Summer22EE-NanoAODv12/-/merge_requests/4)
+Merge Request: [!2](https://gitlab.cern.ch/cms-analysis-corrections/JME/Run2-2018-UL-NanoAODv9/-/merge_requests/2)
 
 In this MR, we have reorganised tags for JER:
 
@@ -9,4 +9,4 @@ In this MR, we have reorganised tags for JER:
 
 More details are available in [JRDatabase MR-30](https://github.com/cms-jet/JRDatabase/pull/30).
 
-cc: @izisopou, @anmalara, @nbinnorj
+cc: @izisopou, @nbinnorj, @anmalara

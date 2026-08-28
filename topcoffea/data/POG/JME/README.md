@@ -8,7 +8,11 @@ For the JERC-part we currently provide
 - single jet energy correction levels (L1Fastjet, L2Relative, L3Absolute, L2L3Residual)
 - convenience "compound" correction level available as L1L2L3Res (combining all levels listed above)
 - All uncertainty sources as detailed in https://twiki.cern.ch/twiki/bin/view/CMS/JECUncertaintySources (as of now the full set, not the reduced set)
-- Jet resolution scale factors + systematics ("nom","up","down") (as of now only for AK4)
+- Jet resolution scale factors in either a direct `systematic={nom,up,down}`
+  correction or a paired `ScaleFactor` + `SFUncertainty` schema (as of now only
+  for AK4). `CorrectedJetsFactory.get_jer_sf_variations` normalizes both forms
+  to `(nominal, up, down)` and fails if a required companion is absent or has an
+  incompatible signature.
 - Jet pt resolution parametrisations (as of now only for AK4)
 
 The .json files are split into YEAR_jmar.json for tagging SFs and \[jet/fatJet\]_jerc.json.gz for jet energy corrections/resolutions.
@@ -72,7 +76,9 @@ Example:
 │   │ No description │                                                                              
 │   ╰────────────────╯                                               
 
-Examples how to evaluate are given in [`examples/jmarExample.py`](../../examples/jmarExample.py) and [`examples/jercExample.py`](../../examples/jercExample.py).
+For the maintained factory interface, NumPy evaluation boundary, supported JER
+schemas, and extension tests, see
+[`docs/correction_interfaces.md`](../../../../docs/correction_interfaces.md).
 You can load the set of corrections as follows in python as
 ```
 from correctionlib import _core

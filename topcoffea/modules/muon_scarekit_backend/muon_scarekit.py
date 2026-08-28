@@ -13,6 +13,15 @@ warnings.filterwarnings("ignore", category=RuntimeWarning)
 _ROOT = None
 
 
+def _evaluate_correctionlib(correction, *args):
+    """Evaluate correctionlib without exposing it to Awkward-1 arrays."""
+    numpy_args = tuple(
+        ak.to_numpy(arg) if isinstance(arg, ak.highlevel.Array) else arg
+        for arg in args
+    )
+    return correction.evaluate(*numpy_args)
+
+
 def import_ROOT():
     global _ROOT
 
@@ -158,13 +167,15 @@ def get_rndm(eta, phi, nL, evtNr, lumiNr, cset, nested=False):
         evtNr_f = _broadcast_flat_event_field(evtNr, target_length, "evtNr")
         lumiNr_f = _broadcast_flat_event_field(lumiNr, target_length, "lumiNr")
 
-    mean_f = cset.get("cb_params").evaluate(abs(eta_f), nL_f, 0)
-    sigma_f = cset.get("cb_params").evaluate(abs(eta_f), nL_f, 1)
-    n_f = cset.get("cb_params").evaluate(abs(eta_f), nL_f, 2)
-    alpha_f = cset.get("cb_params").evaluate(abs(eta_f), nL_f, 3)
+    mean_f = _evaluate_correctionlib(cset.get("cb_params"), abs(eta_f), nL_f, 0)
+    sigma_f = _evaluate_correctionlib(cset.get("cb_params"), abs(eta_f), nL_f, 1)
+    n_f = _evaluate_correctionlib(cset.get("cb_params"), abs(eta_f), nL_f, 2)
+    alpha_f = _evaluate_correctionlib(cset.get("cb_params"), abs(eta_f), nL_f, 3)
 
     # get random number following the CB
-    rndm_f = cset.get("RandomSmearing").evaluate(evtNr_f, lumiNr_f, phi_f)
+    rndm_f = _evaluate_correctionlib(
+        cset.get("RandomSmearing"), evtNr_f, lumiNr_f, phi_f
+    )
 
     cb_f = CrystallBall(mean_f, sigma_f, alpha_f, n_f)
 
@@ -185,9 +196,9 @@ def get_std(pt, eta, nL, cset, nested=False):
         eta_f, nL_f, pt_f, nmuons = eta, nL, pt, 1
 
     # obtain parameters from correctionlib    
-    param0_f = cset.get("poly_params").evaluate(abs(eta_f), nL_f, 0)
-    param1_f = cset.get("poly_params").evaluate(abs(eta_f), nL_f, 1)
-    param2_f = cset.get("poly_params").evaluate(abs(eta_f), nL_f, 2)
+    param0_f = _evaluate_correctionlib(cset.get("poly_params"), abs(eta_f), nL_f, 0)
+    param1_f = _evaluate_correctionlib(cset.get("poly_params"), abs(eta_f), nL_f, 1)
+    param2_f = _evaluate_correctionlib(cset.get("poly_params"), abs(eta_f), nL_f, 2)
 
     # calculate value and return max(0, val)
     sigma_f = param0_f + param1_f * pt_f + param2_f * pt_f*pt_f
@@ -208,8 +219,8 @@ def get_k(eta, var, cset, nested=False):
         eta_f = eta
 
     # obtain parameters from correctionlib
-    k_data_f = cset.get("k_data").evaluate(abs(eta_f), var)
-    k_mc_f = cset.get("k_mc").evaluate(abs(eta_f), var)
+    k_data_f = _evaluate_correctionlib(cset.get("k_data"), abs(eta_f), var)
+    k_mc_f = _evaluate_correctionlib(cset.get("k_mc"), abs(eta_f), var)
 
     # calculate residual smearing factor 
     # return 0 if smearing in MC already larger than in data
@@ -314,8 +325,8 @@ def pt_resol_var(pt_woresol, pt_wresol, eta, updn, cset, nested=False):
         eta_f, nmuons = eta, 1
         pt_wresol_f, pt_woresol_f = pt_wresol, pt_woresol
 
-    k_unc_f = cset.get("k_mc").evaluate(abs(eta_f), "stat")
-    k_f = cset.get("k_mc").evaluate(abs(eta_f), "nom")
+    k_unc_f = _evaluate_correctionlib(cset.get("k_mc"), abs(eta_f), "stat")
+    k_f = _evaluate_correctionlib(cset.get("k_mc"), abs(eta_f), "nom")
 
     pt_var_f = pt_wresol_f
 
@@ -373,8 +384,8 @@ def pt_scale(is_data, pt, eta, phi, charge, cset, nested=False, low_pt_threshold
     else:
         eta_f, phi_f, nmuons = eta, phi, 1
     
-    a_f = cset.get("a_"+dtmc).evaluate(eta_f, phi_f, "nom")
-    m_f = cset.get("m_"+dtmc).evaluate(eta_f, phi_f, "nom")
+    a_f = _evaluate_correctionlib(cset.get("a_"+dtmc), eta_f, phi_f, "nom")
+    m_f = _evaluate_correctionlib(cset.get("m_"+dtmc), eta_f, phi_f, "nom")
 
     if nested:
         a, m = ak.unflatten(a_f, nmuons), ak.unflatten(m_f, nmuons)
@@ -407,9 +418,11 @@ def pt_scale_var(pt, eta, phi, charge, updn, cset, nested=False):
     else:
         eta_f, phi_f, pt_f, nmuons = eta, phi, pt, 1
 
-    stat_a_f = cset.get("a_mc").evaluate(eta_f, phi_f, "stat")
-    stat_m_f = cset.get("m_mc").evaluate(eta_f, phi_f, "stat")
-    stat_rho_f = cset.get("m_mc").evaluate(eta_f, phi_f, "rho_stat")
+    stat_a_f = _evaluate_correctionlib(cset.get("a_mc"), eta_f, phi_f, "stat")
+    stat_m_f = _evaluate_correctionlib(cset.get("m_mc"), eta_f, phi_f, "stat")
+    stat_rho_f = _evaluate_correctionlib(
+        cset.get("m_mc"), eta_f, phi_f, "rho_stat"
+    )
 
     if nested:
         stat_a, stat_m, stat_rho = ak.unflatten(stat_a_f, nmuons), ak.unflatten(stat_m_f, nmuons), ak.unflatten(stat_rho_f, nmuons)

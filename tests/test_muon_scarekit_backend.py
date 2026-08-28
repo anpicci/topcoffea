@@ -16,6 +16,7 @@ class _FakeCorrection:
         self.recorder = recorder
 
     def evaluate(self, *args):
+        assert not any(isinstance(arg, ak.highlevel.Array) for arg in args)
         nentries = _length(args[0])
         if self.name == "RandomSmearing":
             self.recorder["events"] = np.asarray(args[0]).tolist()
@@ -31,6 +32,11 @@ class _FakeCorrection:
             return np.full(nentries, 0.2)
         if self.name == "k_mc":
             return np.full(nentries, 0.1 if args[1] == "nom" else 0.01)
+        if self.name.startswith("a_"):
+            return np.full(nentries, 0.001 if args[2] == "nom" else 0.0001)
+        if self.name.startswith("m_"):
+            values = {"nom": 1.0, "stat": 0.01, "rho_stat": 0.0}
+            return np.full(nentries, values[args[2]])
         raise AssertionError(f"Unexpected correction {self.name}")
 
 
@@ -168,3 +174,22 @@ def test_flat_pt_resol_runs_with_per_muon_event_lumi(monkeypatch):
 
     assert len(result) == 3
     assert np.all(np.isfinite(ak.to_numpy(result)))
+
+
+def test_nested_scale_and_resolution_variations_use_numpy_inputs():
+    impl = importlib.import_module(
+        "topcoffea.modules.muon_scarekit_backend.muon_scarekit"
+    )
+    cset = _FakeCorrectionSet({})
+    pt = ak.Array([[30.0], [], [45.0, 60.0]])
+    eta = ak.Array([[0.1], [], [-1.2, 1.3]])
+    phi = ak.Array([[0.2], [], [-0.4, 2.0]])
+    charge = ak.Array([[1], [], [-1, 1]])
+
+    scaled = impl.pt_scale(False, pt, eta, phi, charge, cset, nested=True)
+    scale_up = impl.pt_scale_var(pt, eta, phi, charge, "up", cset, nested=True)
+    resol_up = impl.pt_resol_var(pt, pt * 1.01, eta, "up", cset, nested=True)
+
+    assert ak.to_list(ak.num(scaled)) == [1, 0, 2]
+    assert ak.to_list(ak.num(scale_up)) == [1, 0, 2]
+    assert ak.to_list(ak.num(resol_up)) == [1, 0, 2]

@@ -1,5 +1,12 @@
 #! /usr/bin/env python
+"""Build and validate fingerprinted remote-executor environment archives.
+
+Public callers should use :func:`resolve_environment_request`,
+:func:`validate_environment_archive`, or :func:`get_environment`. Private
+helpers own local Git inspection, packaging, and cache maintenance.
+"""
 import copy
+import datetime
 import json
 import hashlib
 import subprocess
@@ -9,9 +16,10 @@ import logging
 import glob
 import os
 import re
+import tarfile
 from pathlib import Path
 
-from typing import Dict, List, Optional
+from typing import Any, Dict, List, Optional
 
 
 logger = logging.getLogger()
@@ -217,6 +225,9 @@ def _version_tuple(version: str) -> tuple[int, ...]:
     return tuple(parts)
 
 
+MANIFEST_SCHEMA_VERSION = 1
+
+
 def _create_env(env_name: str, spec: Dict, force: bool = False):
     if force:
         logger.info("Forcing rebuilding of {}".format(env_name))
@@ -241,6 +252,7 @@ def _create_env(env_name: str, spec: Dict, force: bool = False):
             logger.error(f"poncho package creation failed with code {e.returncode}")
             logger.error(f"{e.output.decode()}")
             raise e
+    return env_name
 
 def _find_local_pip():
     edit_raw = subprocess.check_output(
@@ -324,45 +336,283 @@ def _clean_cache(cache_size, *current_files):
             os.remove(f)
 
 
-def get_environment(
+def _sha256_file(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as handle:
+        for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+def _run_git_text(path: str, arguments: List[str]) -> str:
+    return subprocess.check_output(["git", *arguments], cwd=path, stdin=subprocess.DEVNULL).decode().strip()
+
+
+def _relevant_untracked_files(path: str, watched_paths: List[str]) -> List[Dict[str, str]]:
+    """Return non-ignored untracked regular files below declared watch paths."""
+    try:
+        raw_paths = subprocess.check_output(
+            ["git", "ls-files", "--others", "--exclude-standard", "-z", "--", *watched_paths],
+            cwd=path,
+            stdin=subprocess.DEVNULL,
+        )
+    except (OSError, subprocess.CalledProcessError) as exc:
+        raise RuntimeError(f"Could not enumerate untracked source files for {path}: {exc}") from exc
+
+    files = []
+    for relative_path in sorted(item.decode() for item in raw_paths.split(b"\0") if item):
+        source = Path(path, relative_path)
+        if source.is_symlink() or not source.is_file():
+            raise RuntimeError(
+                "Unsupported non-regular untracked watched source entry: {}".format(relative_path)
+            )
+        files.append({"path": relative_path, "sha256": _sha256_file(source)})
+    return files
+
+
+def _watched_source_fingerprint(path: str, watched_paths: List[str]) -> tuple[str, bool, List[Dict[str, str]]]:
+    pathspecs = [":(top){}".format(item) for item in watched_paths]
+    try:
+        commit = _run_git_text(path, ["rev-parse", "HEAD"])
+        status = _run_git_text(path, ["status", "--porcelain", "--untracked-files=no", "--", *pathspecs])
+        names = _run_git_text(path, ["ls-files", "-z", "--", *pathspecs]).split("\0")
+    except (OSError, subprocess.CalledProcessError) as exc:
+        raise RuntimeError(f"Could not resolve editable package state for {path}: {exc}") from exc
+
+    digest = hashlib.sha256()
+    digest.update(commit.encode())
+    digest.update(status.encode())
+    for name in sorted(name for name in names if name):
+        source = Path(path, name)
+        if source.is_file():
+            digest.update(name.encode())
+            digest.update(_sha256_file(source).encode())
+    untracked_files = _relevant_untracked_files(path, watched_paths)
+    untracked_payload = json.dumps(untracked_files, sort_keys=True, separators=(",", ":"))
+    digest.update(untracked_payload.encode())
+    return digest.hexdigest(), bool(status), untracked_files
+
+
+def _editable_package_states(watch_config: Dict[str, List[str]]) -> List[Dict[str, Any]]:
+    installed = _find_local_pip()
+    states = []
+    for package_name, watched_paths in sorted(watch_config.items()):
+        location = installed.get(package_name)
+        if not location:
+            continue
+        commit = _run_git_text(location, ["rev-parse", "HEAD"])
+        source_fingerprint, dirty, untracked_files = _watched_source_fingerprint(location, watched_paths)
+        untracked_fingerprint = hashlib.sha256(
+            json.dumps(untracked_files, sort_keys=True, separators=(",", ":")).encode()
+        ).hexdigest()
+        states.append(
+            {
+                "package_name": package_name,
+                "git_commit": commit,
+                "watched_source_fingerprint": source_fingerprint,
+                "clean_or_dirty": "dirty" if dirty else "clean",
+                "untracked_relevant_count": len(untracked_files),
+                "untracked_relevant_fingerprint": untracked_fingerprint,
+            }
+        )
+    return states
+
+
+def resolve_environment_request(
     extra_conda: Optional[List[str]] = None,
     extra_pip: Optional[List[str]] = None,
-    extra_pip_local: Optional[dict[str, str]] = None,
-    force: bool = False,
+    extra_pip_local: Optional[Dict[str, List[str]]] = None,
     unstaged: str = "rebuild",
-    cache_size: int = 3,
-):
-    # ensure cache directory exists
-    Path(env_dir_cache).mkdir(parents=True, exist_ok=True)
+) -> Dict[str, Any]:
+    """Resolve the current packaging request before choosing a cache path."""
+    if unstaged not in {"rebuild", "fail"}:
+        raise ValueError("unstaged must be 'rebuild' or 'fail'")
 
     spec = copy.deepcopy(default_modules)
-    spec_pip_local_to_watch = copy.deepcopy(pip_local_to_watch)
+    watch_config = copy.deepcopy(pip_local_to_watch)
     if extra_conda:
         spec["conda"]["packages"].extend(extra_conda)
     if extra_pip:
         spec["pip"].extend(extra_pip)
     if extra_pip_local:
         spec["pip"].extend(extra_pip_local)
-        spec_pip_local_to_watch.update(extra_pip_local)
+        watch_config.update(extra_pip_local)
 
-    packages_hash = hashlib.sha256(json.dumps(spec).encode()).hexdigest()[0:8]
+    resolved_spec = _sanitize_spec(_check_current_env(spec))
+    editable_packages = _editable_package_states(watch_config)
+    dirty_packages = [item["package_name"] for item in editable_packages if item["clean_or_dirty"] == "dirty"]
+    if dirty_packages and unstaged == "fail":
+        raise UnstagedChanges(dirty_packages)
 
-    pip_paths = _find_local_pip()
-    pip_commits = _commits_local_pip(pip_paths)
-    pip_check = _compute_commit(pip_paths, pip_commits)
+    fingerprint_payload = {
+        "python_version": py_version,
+        "resolved_environment_spec": resolved_spec,
+        "editable_packages": editable_packages,
+    }
+    resolved_spec_fingerprint = hashlib.sha256(
+        json.dumps(resolved_spec, sort_keys=True, separators=(",", ":")).encode()
+    ).hexdigest()
+    fingerprint = hashlib.sha256(
+        json.dumps(fingerprint_payload, sort_keys=True, separators=(",", ":")).encode()
+    ).hexdigest()
+    return {
+        **fingerprint_payload,
+        "resolved_environment_spec_fingerprint": resolved_spec_fingerprint,
+        "environment_fingerprint": fingerprint,
+        "dirty_packages": dirty_packages,
+    }
 
-    env_name = str(Path(env_dir_cache).joinpath("env_spec_{}_edit_{}".format(packages_hash, pip_check)).with_suffix(".tar.gz"))
-    _clean_cache(cache_size, env_name)
 
-    if pip_check == 'HEAD':
-        changed = [p for p in pip_commits if pip_commits[p] == 'HEAD']
-        if unstaged == 'fail':
-            raise UnstagedChanges(changed)
-        if unstaged == 'rebuild':
-            force = True
-            logger.warning("Rebuilding environment because unstaged changes in {}".format(', '.join([Path(p).name for p in changed])))
+def environment_archive_path(environment_fingerprint: str) -> str:
+    """Return the cache path derived from a full environment fingerprint."""
+    return str(env_dir_cache / f"env_spec_{environment_fingerprint[:16]}.tar.gz")
 
-    return _create_env(env_name, spec, force)
+
+def _manifest_path(archive_path: str) -> Path:
+    return Path(f"{archive_path}.manifest.json")
+
+
+def write_archive_manifest(archive_path: str, environment_request: Dict[str, Any]) -> str:
+    """Atomically write the schema-v1 integrity/provenance manifest."""
+    archive = Path(archive_path)
+    manifest = {
+        "schema_version": MANIFEST_SCHEMA_VERSION,
+        "archive_basename": archive.name,
+        "archive_sha256": _sha256_file(archive),
+        "created_at_utc": datetime.datetime.now(datetime.timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z"),
+        "environment_fingerprint": environment_request["environment_fingerprint"],
+        "python_version": environment_request["python_version"],
+        "resolved_environment_spec": environment_request["resolved_environment_spec"],
+        "resolved_environment_spec_fingerprint": environment_request["resolved_environment_spec_fingerprint"],
+        "editable_packages": environment_request["editable_packages"],
+        "builder": {"module": "topcoffea.modules.remote_environment", "manifest_schema_version": MANIFEST_SCHEMA_VERSION},
+    }
+    target = _manifest_path(archive_path)
+    temporary = target.with_name(f".{target.name}.tmp.{os.getpid()}")
+    try:
+        with temporary.open("w", encoding="utf-8") as handle:
+            json.dump(manifest, handle, indent=2, sort_keys=True)
+            handle.write("\n")
+            handle.flush()
+            os.fsync(handle.fileno())
+        os.replace(temporary, target)
+    finally:
+        if temporary.exists():
+            temporary.unlink()
+    return str(target)
+
+
+def validate_environment_archive(
+    archive_path: str,
+    current_environment_request: Optional[Dict[str, Any]] = None,
+    snapshot: bool = False,
+) -> Dict[str, Any]:
+    """Validate archive integrity and, unless snapshot is selected, provenance."""
+    archive = Path(archive_path).expanduser().resolve()
+    result: Dict[str, Any] = {
+        "status": "invalid_archive",
+        "archive_path": str(archive),
+        "archive_sha256": None,
+        "manifest_path": str(_manifest_path(str(archive))),
+        "environment_fingerprint": None,
+        "current_environment_fingerprint": (current_environment_request or {}).get("environment_fingerprint"),
+        "mismatches": [],
+        "warnings": [],
+        "usable": False,
+        "provenance_status": "unknown",
+        "editable_packages": [],
+    }
+    if not archive.is_file() or not os.access(archive, os.R_OK) or archive.stat().st_size == 0:
+        result["mismatches"].append("archive must be a readable non-empty regular file")
+        return result
+    try:
+        with tarfile.open(archive, "r:gz") as tar_handle:
+            tar_handle.getmembers()
+    except (OSError, tarfile.TarError) as exc:
+        result["mismatches"].append(f"archive is not a readable tar.gz: {exc}")
+        return result
+
+    result["archive_sha256"] = _sha256_file(archive)
+    manifest_path = _manifest_path(str(archive))
+    if not manifest_path.is_file():
+        result["status"] = "unverifiable"
+        result["provenance_status"] = "incomplete"
+        result["mismatches"].append("archive manifest is missing")
+        if snapshot:
+            result["usable"] = True
+            result["warnings"].append("snapshot archive has no manifest; provenance is incomplete")
+        return result
+    try:
+        manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as exc:
+        result["mismatches"].append(f"archive manifest is unreadable: {exc}")
+        return result
+    if manifest.get("schema_version") != MANIFEST_SCHEMA_VERSION:
+        result["status"] = "unverifiable"
+        result["provenance_status"] = "unsupported_schema"
+        result["mismatches"].append("archive manifest schema is unsupported")
+        return result
+    required_fields = {
+        "archive_basename",
+        "archive_sha256",
+        "created_at_utc",
+        "environment_fingerprint",
+        "python_version",
+        "resolved_environment_spec",
+        "resolved_environment_spec_fingerprint",
+        "editable_packages",
+    }
+    missing_fields = sorted(field for field in required_fields if field not in manifest)
+    if missing_fields:
+        result["status"] = "unverifiable"
+        result["provenance_status"] = "incomplete"
+        result["mismatches"].append("archive manifest is missing required fields: {}".format(", ".join(missing_fields)))
+        if snapshot:
+            result["usable"] = True
+            result["warnings"].append("snapshot archive manifest has incomplete provenance")
+        return result
+    result["environment_fingerprint"] = manifest.get("environment_fingerprint")
+    result["editable_packages"] = manifest.get("editable_packages", [])
+    if manifest.get("archive_basename") != archive.name:
+        result["mismatches"].append("archive basename does not match manifest")
+        return result
+    if manifest.get("archive_sha256") != result["archive_sha256"]:
+        result["mismatches"].append("archive SHA256 does not match manifest")
+        return result
+    result["provenance_status"] = "complete"
+    if current_environment_request and result["environment_fingerprint"] != result["current_environment_fingerprint"]:
+        result["status"] = "stale"
+        result["mismatches"].append("archive environment fingerprint differs from the current resolved environment")
+        if snapshot:
+            result["usable"] = True
+            result["warnings"].append("snapshot compatibility mismatch accepted explicitly")
+        return result
+    result["status"] = "valid"
+    result["usable"] = True
+    return result
+
+
+def get_environment(
+    extra_conda: Optional[List[str]] = None,
+    extra_pip: Optional[List[str]] = None,
+    extra_pip_local: Optional[Dict[str, List[str]]] = None,
+    force: bool = False,
+    unstaged: str = "rebuild",
+    cache_size: int = 3,
+):
+    """Return a current, manifest-validated archive, rebuilding only its cache key."""
+    Path(env_dir_cache).mkdir(parents=True, exist_ok=True)
+    request = resolve_environment_request(extra_conda, extra_pip, extra_pip_local, unstaged)
+    env_name = environment_archive_path(request["environment_fingerprint"])
+    current = validate_environment_archive(env_name, request)
+    if current["status"] == "valid" and not force:
+        logger.info("Found validated environment cache %s", env_name)
+        return env_name
+
+    created = _create_env(env_name, request["resolved_environment_spec"], force=force or Path(env_name).exists())
+    write_archive_manifest(created, request)
+    _clean_cache(cache_size, created)
+    return created
 
 
 class UnstagedChanges(Exception):

@@ -1,7 +1,11 @@
-## Changes: 2026-04-13 ([Summer23BPixPrompt23] Fix minor run range bug and include Regrouped for AK8 jets)
+## Changes: 2026-07-15 (\[Summer23BPixPrompt23_RunD_JRV2_MC\] Minor fix to the JER SF Uncertainty)
 
-Merge Request: [!14](https://gitlab.cern.ch/cms-analysis-corrections/JME/Run3-23DSep23-Summer23BPix-NanoAODv12/-/merge_requests/14)
+Merge Request: [!16](https://gitlab.cern.ch/cms-analysis-corrections/JME/Run3-23DSep23-Summer23BPix-NanoAODv12/-/merge_requests/16)
 
-In this MR, we fixed a minor bug reported [here](https://cms-talk.web.cern.ch/t/jerc-2025-correctionlib-bug/142489) for 2025, that affected all Run 3 `.json` files: previously, the last `run` of the last era for this tag, i.e. `run==372415` was not included in the run range for `L2L3Residual` JECs. This has now been fixed.
+In the current JSON format, JEC and JER uncertainties are stored as symmetric values. With `JetEta` and `JetPt` as inputs, the JSON returns a single `unc` value, which is then applied symmetrically (e.g., `SF(up/down) = SF(nom) x (1 +/- unc)`).
 
-Additionally, we now include the reduced set of JES uncertainties ("Regrouped") for `AK8PFPuppi` jets, cloned from `AK4PFPuppi`.
+For the 2016-2022 campaigns, the JER SF uncertainties in the TXT files were symmetric, so choosing either the "up" or "down" column during JSON conversion did not affect the result. However, the 2023-2026 JER `SFUncertainty` TXT files contain asymmetric uncertainties. In edge cases (such as high $\eta$ and low $p_T$), a SF might be evaluated as `1.012^{+0.165}_{-0.012}`. This asymmetry occurs because the down uncertainty was artificially bounded to prevent `SF(down)` from falling below 1.0. For the bulk of the typical analysis phase space, the "up" and "down" uncertainties are approximately symmetric, making this a relatively minor effect for most analyses.
+
+To preserve the true magnitude of the systematic error, the safest approach is to store the unbounded "up" uncertainty in the JSON. While this is already implemented for the 2024-2026 JSONs (in the [2024](https://gitlab.cern.ch/cms-analysis-corrections/JME/Run3-24CDEReprocessingFGHIPrompt-Summer24-NanoAODv15/-/merge_requests/3), [2025](https://gitlab.cern.ch/cms-analysis-corrections/JME/Run3-25Prompt-Summer24-NanoAODv15/-/merge_requests/3), and [2026](https://gitlab.cern.ch/cms-analysis-corrections/JME/Run3-26Prompt-Summer24-NanoAODv15/-/merge_requests/1) MRs), it was missed for the 2023 files.
+
+This MR fixes this minor issue in the conversion script, ensuring we now consistently retrieve and store the JER SF "up" uncertainty in the JSON files. The new tag version is: `Summer23BPixPrompt23_RunD_JRV3_MC`.

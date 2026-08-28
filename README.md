@@ -7,7 +7,18 @@ cd topcoffea
 pip install -e .
 ```
 
-When pairing this repository with [`topeft`](https://github.com/TopEFT/topeft), use the `run3_test_mmerged` branch of `topcoffea` alongside the `run3_test_mmerged_anpicci` branch of `topeft` to match the maintained workflow.
+When pairing this repository with [`topeft`](https://github.com/TopEFT/topeft),
+use the exact `topcoffea` ref selected by the consuming workflow (for example
+`TOPCOFFEA_GIT_REF` in topeft's installer) and record both commits. Branch names
+alone are not a compatibility guarantee.
+
+Developer references for the current feature contracts:
+
+* [Remote environment archive contract](docs/environment_archive_contract.md)
+* [Correction interfaces reference](docs/correction_interfaces.md)
+* [EFT and histogram interfaces](docs/eft_interfaces.md)
+* [Physics extension guides](docs/physics_extension_guides.md)
+* [topeft integration](docs/topeft_integration.md)
 
 ## Remote environment compatibility
 
@@ -105,4 +116,3 @@ compat.ensure_histEFT_py39_compat()
 # Load histogram utilities (including the streaming fallback) via a stable entrypoint
 hist_utils = compat.ensure_hist_utils()
 ```
-
