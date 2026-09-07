@@ -12,6 +12,62 @@ from collections import namedtuple
 from typing import Mapping, Union, Sequence
 
 
+def _restore_sparsehist_from_reduce(
+    cls,
+    cat_axes,
+    dense_axes,
+    init_args,
+    dense_hists,
+    *,
+    track_raw_counts,
+    raw_counts=None,
+):
+    """Canonical reconstruction owner for SparseHist and its subclasses."""
+
+    hnew = cls(
+        *cat_axes,
+        *dense_axes,
+        track_raw_counts=track_raw_counts,
+        **init_args,
+    )
+    for key, dense_histogram in dense_hists.items():
+        new_key = hnew._fill_bookkeep(*hnew.index_to_categories(key))
+        hnew._dense_hists[new_key] = dense_histogram
+        if track_raw_counts:
+            if raw_counts is None or key not in raw_counts:
+                raise RuntimeError("Serialized raw-count state is incomplete.")
+            state = raw_counts[key]
+            hnew._raw_counts[new_key] = (
+                None
+                if state is None
+                else np.array(state, dtype=np.uint64, copy=True)
+            )
+    if track_raw_counts:
+        hnew._validated_raw_count_states()
+    return hnew
+
+
+def _read_tracked_sparsehist_from_reduce(
+    cls,
+    cat_axes,
+    dense_axes,
+    init_args,
+    dense_hists,
+    raw_counts,
+):
+    """Reconstruct extended raw-count state outside the patchable legacy hook."""
+
+    return _restore_sparsehist_from_reduce(
+        cls,
+        cat_axes,
+        dense_axes,
+        init_args,
+        dense_hists,
+        track_raw_counts=True,
+        raw_counts=raw_counts,
+    )
+
+
 class SparseHist(hist.Hist, family=hist):
     """Histogram specialized for sparse categorical data."""
 
@@ -690,9 +746,18 @@ class SparseHist(hist.Hist, family=hist):
         return h._ibinary_op(other, op)
 
     def __reduce__(self):
-        raw_state = ()
         if self.track_raw_counts:
-            raw_state = (True, self._validated_raw_count_states())
+            return (
+                _read_tracked_sparsehist_from_reduce,
+                (
+                    type(self),
+                    list(self.categorical_axes),
+                    list(self.dense_axes),
+                    self._init_args,
+                    self._dense_hists,
+                    self._validated_raw_count_states(),
+                ),
+            )
         return (
             type(self)._read_from_reduce,
             (
@@ -700,7 +765,6 @@ class SparseHist(hist.Hist, family=hist):
                 list(self.dense_axes),
                 self._init_args,
                 self._dense_hists,
-                *raw_state,
             ),
         )
 
@@ -711,30 +775,15 @@ class SparseHist(hist.Hist, family=hist):
         dense_axes,
         init_args,
         dense_hists,
-        track_raw_counts=False,
-        raw_counts=None,
     ):
-        hnew = cls(
-            *cat_axes,
-            *dense_axes,
-            track_raw_counts=track_raw_counts,
-            **init_args,
+        return _restore_sparsehist_from_reduce(
+            cls,
+            cat_axes,
+            dense_axes,
+            init_args,
+            dense_hists,
+            track_raw_counts=False,
         )
-        for k, h in dense_hists.items():
-            new_key = hnew._fill_bookkeep(*hnew.index_to_categories(k))
-            hnew._dense_hists[new_key] = h
-            if track_raw_counts:
-                if raw_counts is None or k not in raw_counts:
-                    raise RuntimeError("Serialized raw-count state is incomplete.")
-                state = raw_counts[k]
-                hnew._raw_counts[new_key] = (
-                    None
-                    if state is None
-                    else np.array(state, dtype=np.uint64, copy=True)
-                )
-        if track_raw_counts:
-            hnew._validated_raw_count_states()
-        return hnew
 
     def __iadd__(self, other):
         return self._ibinary_op(other, "__iadd__")

@@ -232,3 +232,90 @@ def test_histeft_counts_source_events_once_before_coefficient_expansion():
         histogram.eval({})[("eft", "nominal")],
         [0.0, -2.0, 3.5, 0.0],
     )
+
+
+@pytest.mark.parametrize("serializer", [pickle, cloudpickle])
+def test_tracked_reconstruction_bypasses_legacy_public_reducer_patch(
+    monkeypatch,
+    serializer,
+):
+    untracked_sparse = make_sparse(track_raw_counts=False)
+    untracked_sparse.fill(
+        process="mc",
+        systematic="nominal",
+        x=np.asarray([0.25]),
+        weight=np.asarray([2.0]),
+    )
+    tracked_sparse = make_sparse()
+    fill_recorded(tracked_sparse, "mc", [0.25], [-3.0])
+
+    untracked_eft = HistEFT(
+        hist.axis.StrCategory([], name="process", growth=True),
+        hist.axis.StrCategory([], name="systematic", growth=True),
+        hist.axis.Regular(2, 0.0, 2.0, name="x"),
+        wc_names=["ctG"],
+    )
+    untracked_eft.fill(
+        process="eft",
+        systematic="nominal",
+        x=np.asarray([0.25]),
+        weight=np.asarray([5.0]),
+    )
+    tracked_eft = HistEFT(
+        hist.axis.StrCategory([], name="process", growth=True),
+        hist.axis.StrCategory([], name="systematic", growth=True),
+        hist.axis.Regular(2, 0.0, 2.0, name="x"),
+        wc_names=["ctG"],
+        track_raw_counts=True,
+    )
+    tracked_eft.fill(
+        process="eft",
+        systematic="nominal",
+        x=np.asarray([1.25]),
+        weight=np.asarray([-7.0]),
+        eft_coeff=np.asarray([[1.0, 2.0, 3.0]]),
+        record_raw_count=True,
+    )
+
+    payload = serializer.dumps(
+        {
+            "untracked_sparse": untracked_sparse,
+            "tracked_sparse": tracked_sparse,
+            "untracked_eft": untracked_eft,
+            "tracked_eft": tracked_eft,
+        }
+    )
+    original_legacy_reconstructor = SparseHist._read_from_reduce.__func__
+    legacy_calls = []
+
+    def legacy_reconstructor(cls, cat_axes, dense_axes, init_args, dense_hists):
+        legacy_calls.append(cls)
+        return original_legacy_reconstructor(
+            cls,
+            cat_axes,
+            dense_axes,
+            init_args,
+            dense_hists,
+        )
+
+    monkeypatch.setattr(
+        SparseHist,
+        "_read_from_reduce",
+        classmethod(legacy_reconstructor),
+    )
+    restored = serializer.loads(payload)
+
+    expected_legacy_calls = (
+        [SparseHist, HistEFT]
+        if serializer is pickle
+        else [HistEFT]
+    )
+    assert legacy_calls == expected_legacy_calls
+    assert restored["untracked_sparse"].track_raw_counts is False
+    assert restored["untracked_eft"].track_raw_counts is False
+    np.testing.assert_array_equal(only_raw(restored["tracked_sparse"]), [0, 1, 0, 0])
+    np.testing.assert_array_equal(only_raw(restored["tracked_eft"]), [0, 0, 1, 0])
+    np.testing.assert_allclose(
+        restored["tracked_eft"].eval({})[("eft", "nominal")],
+        [0.0, 0.0, -7.0, 0.0],
+    )

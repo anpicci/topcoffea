@@ -7,7 +7,10 @@ import numpy as np
 
 from typing import Any, List, Mapping, Union
 
-from topcoffea.modules.sparseHist import SparseHist
+from topcoffea.modules.sparseHist import (
+    SparseHist,
+    _read_tracked_sparsehist_from_reduce,
+)
 import topcoffea.modules.eft_helper as efth
 
 try:
@@ -320,9 +323,18 @@ class HistEFT(SparseHist, family=_family):
         args = dict(self._init_args)
         args.update(self._init_args_eft)
 
-        raw_state = ()
         if self.track_raw_counts:
-            raw_state = (True, self._validated_raw_count_states())
+            return (
+                _read_tracked_sparsehist_from_reduce,
+                (
+                    type(self),
+                    list(self.categorical_axes),
+                    [self.dense_axis],
+                    args,
+                    self._dense_hists,
+                    self._validated_raw_count_states(),
+                ),
+            )
 
         return (
             type(self)._read_from_reduce,
@@ -331,7 +343,6 @@ class HistEFT(SparseHist, family=_family):
                 [self.dense_axis],
                 args,
                 self._dense_hists,
-                *raw_state,
             ),
         )
 
@@ -375,16 +386,12 @@ class HistEFT(SparseHist, family=_family):
         dense_axes,
         init_args,
         dense_hists,
-        track_raw_counts=False,
-        raw_counts=None,
     ):
         return super()._read_from_reduce(
             cat_axes,
             dense_axes,
             init_args,
             dense_hists,
-            track_raw_counts,
-            raw_counts,
         )
 
     # this method should be moved to eft_helper once HistEFT is replaced.
