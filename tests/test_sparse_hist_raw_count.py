@@ -234,6 +234,183 @@ def test_histeft_counts_source_events_once_before_coefficient_expansion():
     )
 
 
+def test_copy_raw_counts_from_histeft_preserves_recorded_and_unrecorded_state():
+    source = HistEFT(
+        hist.axis.StrCategory([], name="process", growth=True),
+        hist.axis.StrCategory([], name="systematic", growth=True),
+        hist.axis.Regular(2, 0.0, 2.0, name="x"),
+        wc_names=["ctG"],
+        track_raw_counts=True,
+    )
+    source.fill(
+        process="eft",
+        systematic="nominal",
+        x=np.asarray([0.25, 1.25]),
+        weight=np.asarray([-2.0, 0.5]),
+        eft_coeff=np.asarray([[1.5, 2.0, 3.0], [4.0, 5.0, 6.0]]),
+        record_raw_count=True,
+    )
+    source.fill(
+        process="eft",
+        systematic="generated",
+        x=np.asarray([0.25]),
+        weight=np.asarray([7.0]),
+        record_raw_count=False,
+    )
+    destination = SparseHist(
+        *list(source.categorical_axes),
+        source.dense_axis,
+        storage="Double",
+    )
+    evaluated = source.eval({})
+    for categories, values in evaluated.items():
+        destination[tuple(categories)] = values
+
+    values_before = {
+        key: np.array(values, copy=True)
+        for key, values in destination.view(flow=True, as_dict=True).items()
+    }
+    destination.copy_raw_counts_from(source)
+
+    assert destination.track_raw_counts is True
+    assert destination.categorical_axes == source.categorical_axes
+    assert destination.dense_axes.name == ("x",)
+    np.testing.assert_array_equal(
+        destination.raw_counts(flow=True)[("eft", "nominal")],
+        np.asarray([0, 1, 1, 0], dtype=np.uint64),
+    )
+    assert ("eft", "generated") not in destination.raw_counts(flow=True)
+    assert destination._validated_raw_count_states()[
+        destination.categories_to_index(("eft", "generated"))
+    ] is None
+    for key, values in destination.view(flow=True, as_dict=True).items():
+        np.testing.assert_array_equal(values, values_before[key])
+
+    source._raw_counts[source.categories_to_index(("eft", "nominal"))][1] += 10
+    np.testing.assert_array_equal(
+        destination.raw_counts(flow=True)[("eft", "nominal")],
+        np.asarray([0, 1, 1, 0], dtype=np.uint64),
+    )
+
+
+def test_copy_raw_counts_from_rejects_incompatible_or_conflicting_state():
+    source = make_sparse()
+    fill_recorded(source, "mc", [0.25], [2.0])
+
+    wrong_axis = SparseHist(
+        *list(source.categorical_axes),
+        hist.axis.Regular(3, 0.0, 3.0, name="x"),
+        storage="Double",
+    )
+    wrong_axis.fill(
+        process="mc", systematic="nominal", x=np.asarray([0.25]), weight=2.0
+    )
+    with pytest.raises(ValueError, match="Physical dense axes"):
+        wrong_axis.copy_raw_counts_from(source)
+    assert wrong_axis.track_raw_counts is False
+
+    wrong_categories = SparseHist(
+        hist.axis.StrCategory([], name="dataset", growth=True),
+        hist.axis.StrCategory([], name="systematic", growth=True),
+        *list(source.dense_axes),
+        storage="Double",
+    )
+    wrong_categories.fill(
+        dataset="mc", systematic="nominal", x=np.asarray([0.25]), weight=2.0
+    )
+    with pytest.raises(ValueError, match="Categorical axes"):
+        wrong_categories.copy_raw_counts_from(source)
+    assert wrong_categories.track_raw_counts is False
+
+    missing_support = make_sparse(track_raw_counts=False)
+    missing_support.fill(
+        process="other", systematic="nominal", x=np.asarray([0.25]), weight=2.0
+    )
+    with pytest.raises(ValueError, match="Categorical support"):
+        missing_support.copy_raw_counts_from(source)
+    assert missing_support.track_raw_counts is False
+
+    conflicting = make_sparse()
+    fill_recorded(conflicting, "mc", [0.25], [3.0])
+    with pytest.raises(RuntimeError, match="already has raw-count state"):
+        conflicting.copy_raw_counts_from(source)
+
+    untracked_source = make_sparse(track_raw_counts=False)
+    untracked_source.fill(
+        process="mc", systematic="nominal", x=np.asarray([0.25]), weight=2.0
+    )
+    compatible_destination = make_sparse(track_raw_counts=False)
+    compatible_destination.fill(
+        process="mc", systematic="nominal", x=np.asarray([0.25]), weight=2.0
+    )
+    with pytest.raises(RuntimeError, match="Source raw-count tracking is disabled"):
+        compatible_destination.copy_raw_counts_from(untracked_source)
+
+
+@pytest.mark.parametrize("serializer", [pickle, cloudpickle])
+def test_with_raw_counts_unrecorded_preserves_payload_and_serializes(serializer):
+    source = make_sparse()
+    fill_recorded(source, "mc", [0.25, 1.25], [-2.0, 3.0])
+    source.fill(
+        process="derived",
+        systematic="nominal",
+        x=np.asarray([0.25]),
+        weight=np.asarray([7.0]),
+        record_raw_count=False,
+    )
+    values_before = {
+        key: np.array(values, copy=True)
+        for key, values in source.view(flow=True, as_dict=True).items()
+    }
+
+    output = source.with_raw_counts_unrecorded()
+
+    assert output is not source
+    assert output.track_raw_counts is True
+    assert output.axes.name == source.axes.name
+    assert tuple(type(axis) for axis in output.axes) == tuple(
+        type(axis) for axis in source.axes
+    )
+    assert [list(axis) for axis in output.categorical_axes] == [
+        list(axis) for axis in source.categorical_axes
+    ]
+    assert tuple(output.dense_axes) == tuple(source.dense_axes)
+    assert output.raw_counts(flow=True) == {}
+    assert all(state is None for state in output._validated_raw_count_states().values())
+    assert source.raw_counts(flow=True)
+    for key, values in output.view(flow=True, as_dict=True).items():
+        np.testing.assert_array_equal(values, values_before[key])
+
+    restored = serializer.loads(serializer.dumps(output))
+    assert restored.track_raw_counts is True
+    assert restored.raw_counts(flow=True) == {}
+    assert all(
+        state is None for state in restored._validated_raw_count_states().values()
+    )
+    for key, values in restored.view(flow=True, as_dict=True).items():
+        np.testing.assert_array_equal(values, values_before[key])
+
+    untracked = make_sparse(track_raw_counts=False)
+    with pytest.raises(RuntimeError, match="disabled"):
+        untracked.with_raw_counts_unrecorded()
+
+
+def test_recorded_unrecorded_same_key_guard_remains_fail_closed():
+    recorded = make_sparse()
+    fill_recorded(recorded, "mc", [0.25], [2.0])
+    unrecorded = recorded.with_raw_counts_unrecorded()
+    weighted_before = np.array(
+        next(iter(recorded.view(flow=True, as_dict=True).values())), copy=True
+    )
+
+    with pytest.raises(RuntimeError, match="recorded and explicitly unrecorded"):
+        recorded += unrecorded
+
+    np.testing.assert_array_equal(
+        next(iter(recorded.view(flow=True, as_dict=True).values())), weighted_before
+    )
+
+
 @pytest.mark.parametrize("serializer", [pickle, cloudpickle])
 def test_tracked_reconstruction_bypasses_legacy_public_reducer_patch(
     monkeypatch,

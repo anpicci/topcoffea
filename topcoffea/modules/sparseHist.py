@@ -313,6 +313,78 @@ class SparseHist(hist.Hist, family=hist):
             if state is not None
         }
 
+    def copy_raw_counts_from(self, source):
+        """Enable tracking by copying compatible raw-count state from ``source``.
+
+        The destination numerical payload is unchanged. Categorical support and
+        the physical raw-count axes must match exactly, and an existing
+        destination raw-count state is never overwritten.
+        """
+
+        if not isinstance(source, SparseHist):
+            raise TypeError("Raw-count state can be copied only from a SparseHist.")
+        if self.track_raw_counts or hasattr(self, "_raw_counts"):
+            raise RuntimeError("Destination already has raw-count state.")
+        if not source.track_raw_counts:
+            raise RuntimeError("Source raw-count tracking is disabled.")
+
+        source_states = source._validated_raw_count_states()
+        if (
+            self.categorical_axes.name != source.categorical_axes.name
+            or tuple(type(axis) for axis in self.categorical_axes)
+            != tuple(type(axis) for axis in source.categorical_axes)
+        ):
+            raise ValueError("Categorical axes are incompatible for raw-count copying.")
+        if tuple(self._raw_count_dense_axes()) != tuple(
+            source._raw_count_dense_axes()
+        ):
+            raise ValueError("Physical dense axes are incompatible for raw-count copying.")
+
+        source_indices = {
+            tuple(source.index_to_categories(index)): index for index in source_states
+        }
+        destination_indices = {
+            tuple(self.index_to_categories(index)): index for index in self._dense_hists
+        }
+        if set(source_indices) != set(destination_indices):
+            missing = set(source_indices) - set(destination_indices)
+            extra = set(destination_indices) - set(source_indices)
+            raise ValueError(
+                "Categorical support is incompatible for raw-count copying: "
+                f"missing={len(missing)}, extra={len(extra)}."
+            )
+
+        self._track_raw_counts = True
+        self._raw_counts = {}
+        try:
+            for categories, destination_index in destination_indices.items():
+                self._merge_raw_count_state(
+                    destination_index,
+                    source_states[source_indices[categories]],
+                    context="Raw-count state copy",
+                )
+            self._validated_raw_count_states()
+        except Exception:
+            del self._raw_counts
+            self._track_raw_counts = False
+            raise
+        return self
+
+    def with_raw_counts_unrecorded(self):
+        """Return a numerical copy with every tracked raw-count cell unrecorded."""
+
+        self._validated_raw_count_states()
+        output = self.copy()
+        output._raw_counts = {}
+        for index in output._dense_hists:
+            output._merge_raw_count_state(
+                index,
+                None,
+                context="Explicit unrecorded raw-count classification",
+            )
+        output._validated_raw_count_states()
+        return output
+
     @property
     def categorical_keys(self):
         for indices in self._dense_hists:
