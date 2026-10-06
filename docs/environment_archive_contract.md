@@ -85,7 +85,7 @@ Archive names use the first 16 hex characters of the full fingerprint. A cache
 entry is reused only after strict validation. `force=True` rebuilds the resolved
 key. Dirty watched sources with `unstaged="rebuild"` change the fingerprint and
 select a distinct archive rather than overwriting a clean entry. The normal
-successful build path does not evict historical archive tarballs; the accepted
+successful build path does not evict historical archive tarballs; the existing
 `cache_size` argument does not cause automatic trimming. Existing-target
 rebuild and collision behavior for the resolved key remains separate from
 retention of other archives.
