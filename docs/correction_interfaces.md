@@ -194,4 +194,4 @@ Supported mechanism changes and the corresponding consumer boundary are
 collected in [physics extension guides](physics_extension_guides.md). Concrete
 `topeft` policy and downstream use are described in
 [topeft integration](topeft_integration.md) and the consuming
-[`topeft` correction reference](https://github.com/TopEFT/topeft/blob/HEAD/docs/reference/corrections_weights_and_systematics.md).
+[`topeft` correction reference](https://github.com/TopEFT/topeft/blob/run3_test_mmerged/docs/reference/corrections_weights_and_systematics.md).

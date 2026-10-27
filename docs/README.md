@@ -7,7 +7,7 @@ or determining which repository owns a change.
 `topcoffea` owns reusable mechanisms: correction and selection algorithms,
 corrected-object factories, EFT algebra, histogram interfaces, and packaged
 shared payload interfaces. A consuming analysis such as
-[`topeft`](https://github.com/TopEFT/topeft/blob/HEAD/docs/README.md) owns the
+[`topeft`](https://github.com/TopEFT/topeft/blob/run3_test_mmerged/docs/README.md) owns the
 concrete era, sample, working-point, category, and activation policy. These
 pages describe the shared contract; they do not replace the consuming
 analysis's policy documentation.

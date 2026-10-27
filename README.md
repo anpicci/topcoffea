@@ -7,6 +7,10 @@ cd topcoffea
 pip install -e .
 ```
 
+The default GitHub landing branch is `main`. New readers should start from the
+public `run3_test_mmerged` baseline; ongoing development continues locally on
+`tc/dev-live`.
+
 When pairing this repository with [`topeft`](https://github.com/TopEFT/topeft),
 use the exact `topcoffea` ref selected by the consuming workflow (for example
 `TOPCOFFEA_GIT_REF` in topeft's installer) and record both commits. Branch names
@@ -36,7 +40,7 @@ When working on `topcoffea` and `topeft` together from sibling checkouts:
 
 Examples of analysis repositories making use of `topcoffea`:
 * [`topeft`](https://github.com/TopEFT/topeft): EFT analyses in the top sector.
-* [`ewkcoffea`](): Multi boson analyses.
+* `ewkcoffea`: Multi boson analyses.
 
 ## Accessing package resources
 
@@ -48,6 +52,8 @@ the repository is nested inside another checkout or installed as a dependency
 of a larger project.
 
 ```python
+import json
+
 from topcoffea.modules.paths import topcoffea_path
 
 with open(topcoffea_path("params/params.json")) as handle:
@@ -87,19 +93,19 @@ that only deserialize their payload on demand:
 ```python
 from topcoffea.modules.utils import iterate_histograms_from_pkl
 
-lazy_entries = list(iterate_histograms_from_pkl("/path/to/output.pkl.gz"))
-
-for key, lazy_hist in lazy_entries:
+for key, lazy_hist in iterate_histograms_from_pkl("/path/to/output.pkl.gz"):
     hist = lazy_hist.materialize()
     try:
         process_histogram(key, hist)
     finally:
-        lazy_hist.release()  # drop the cached histogram when you are done
+        lazy_hist.release()  # drop the materialized histogram when done
 ```
 
-Using `iterate_histograms_from_pkl` keeps peak memory usage constant with
-respect to the histogram payloads while still supporting the existing pickle
-format.
+Direct iteration avoids retaining every lazy entry and its serialized payload
+in a list. Each `LazyHist` retains its serialized payload while referenced;
+`release()` clears only the cached materialized histogram. The fallback loader
+may still materialize the full histogram mapping, so this example does not
+guarantee constant total process memory.
 
 ## Compatibility helpers
 

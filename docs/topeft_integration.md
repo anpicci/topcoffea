@@ -16,12 +16,12 @@ compatible pair from similarly named branches.
 
 Read the [correction interfaces](correction_interfaces.md) or
 [EFT interfaces](eft_interfaces.md) for reusable guarantees. The corresponding
-[`topeft` ownership index](https://github.com/TopEFT/topeft/blob/HEAD/docs/reference/shared_topcoffea_interfaces.md)
+[`topeft` ownership index](https://github.com/TopEFT/topeft/blob/run3_test_mmerged/docs/reference/shared_topcoffea_interfaces.md)
 links the maintained analysis choices for
-[corrections](https://github.com/TopEFT/topeft/blob/HEAD/docs/reference/corrections_weights_and_systematics.md),
-[objects and event selection](https://github.com/TopEFT/topeft/blob/HEAD/docs/reference/objects_selections_and_triggers.md),
-[sample roles](https://github.com/TopEFT/topeft/blob/HEAD/docs/reference/sample_roles_and_normalization.md),
-and [EFT consumption](https://github.com/TopEFT/topeft/blob/HEAD/docs/reference/histeft.md).
+[corrections](https://github.com/TopEFT/topeft/blob/run3_test_mmerged/docs/reference/corrections_weights_and_systematics.md),
+[objects and event selection](https://github.com/TopEFT/topeft/blob/run3_test_mmerged/docs/reference/objects_selections_and_triggers.md),
+[sample roles](https://github.com/TopEFT/topeft/blob/run3_test_mmerged/docs/reference/sample_roles_and_normalization.md),
+and [EFT consumption](https://github.com/TopEFT/topeft/blob/run3_test_mmerged/docs/reference/histeft.md).
 The two repositories deliberately cross-link instead of copying each other's
 authority.
 
