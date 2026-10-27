@@ -7,9 +7,7 @@ cd topcoffea
 pip install -e .
 ```
 
-The default GitHub landing branch is `main`. New readers should start from the
-public `run3_test_mmerged` baseline; ongoing development continues locally on
-`tc/dev-live`.
+Start with the [documentation index](docs/README.md) for current shared interfaces.
 
 When pairing this repository with [`topeft`](https://github.com/TopEFT/topeft),
 use the exact `topcoffea` ref selected by the consuming workflow (for example
@@ -64,7 +62,7 @@ Downstream projects should treat the returned path as read-only package data
 and avoid constructing relative paths by hand (for example `../data/...`) so
 they always inherit the correct behaviour. When integrating with
 [`topeft`](https://github.com/TopEFT/topeft), the editable install performed by
-[`scripts/install_topcoffea.sh`](https://github.com/TopEFT/topeft/blob/run3_test_mmerged_anpicci/scripts/install_topcoffea.sh)
+[`scripts/install_topcoffea.sh`](https://github.com/TopEFT/topeft/blob/run3_test_mmerged/scripts/install_topcoffea.sh)
 should be allowed to supply the packaged resources—avoid keeping in-tree
 overlays that could mask the installed `topcoffea` package.
 

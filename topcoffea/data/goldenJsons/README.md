@@ -16,7 +16,7 @@ The integrated luminosities for the three years cane be found in: `https://twiki
 
 Historical information for the Run3 luminosity values referenced by `topcoffea/json/lumi.json`, and information on the goldenJsons, can be found on this twiki: 'https://twiki.cern.ch/twiki/bin/viewauth/CMS/PdmVRun3Analysis'. Current luminosity parameters are maintained in `topcoffea/params/params.json`.
 
-The Run3 JSONs can be copied from here:
+At CERN sites where `/afs/cern.ch` is mounted, the Run 3 JSONs can be copied from:
 ```
 /afs/cern.ch/cms/CAF/certification/Collisions22/Cert_Collisions2022_355100_362760_Golden.json
 /afs/cern.ch/cms/CAF/certification/Collisions23/Cert_Collisions2023_366442_370790_Golden.json
