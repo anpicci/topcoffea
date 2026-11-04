@@ -60,7 +60,10 @@ def get_method1a_wgt_doublewp(effA, effB, sfA, sfB, cutA, cutB, cutC):
 
     pMC = ak.prod(effA[cutA], axis=-1) * ak.prod(effB[cutB] - effA[cutB], axis=-1) * ak.prod(1 - effB[cutC], axis=-1)
     pMC = ak.where(pMC==0,1,pMC) # removeing zeroes from denominator...
-    pData = ak.prod(effA_data[cutA], axis=-1) * ak.prod(effB_data[cutB] - effA_data[cutB], axis=-1) * ak.prod(1 - effB_data[cutC], axis=-1)
+    # Only the Loose-not-Medium data interval can use this unity fallback.
+    interval_data = effB_data[cutB] - effA_data[cutB]
+    interval_data = ak.where(interval_data < 0, effB[cutB] - effA[cutB], interval_data)
+    pData = ak.prod(effA_data[cutA], axis=-1) * ak.prod(interval_data, axis=-1) * ak.prod(1 - effB_data[cutC], axis=-1)
 
     return pData, pMC
 
